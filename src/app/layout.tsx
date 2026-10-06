@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Noto_Kufi_Arabic } from "next/font/google";
 import "./globals.css";
 
@@ -10,6 +10,12 @@ const kufi = Noto_Kufi_Arabic({
 export const metadata: Metadata = {
   title: "سينما — مشغل الأفلام",
   description: "مشغل أفلام محلي متقدم بواجهة عربية",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

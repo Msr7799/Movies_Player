@@ -219,7 +219,7 @@ export function VideoPlayer({ movie, onOpenFiles }: { movie: Movie; onOpenFiles:
 
   if (!sourceUrl) {
     return (
-      <div className="player-shadow relative grid aspect-video min-h-[300px] place-items-center overflow-hidden rounded-2xl border border-white/10 bg-[#050506] sm:rounded-3xl">
+      <div className="player-shadow relative grid aspect-video min-h-[230px] place-items-center overflow-hidden rounded-2xl border border-white/10 bg-[#050506] sm:min-h-[300px] sm:rounded-3xl">
         <div className="absolute inset-0 opacity-60" style={{ background: "radial-gradient(circle at 50% 35%, #111d2e, transparent 38%), radial-gradient(circle at 50% 115%, #0b1523, transparent 45%)" }} />
         <div className="relative z-10 max-w-md px-6 text-center">
           <span className="navy-glass mx-auto mb-5 grid size-20 place-items-center rounded-full text-rose-300">
@@ -237,7 +237,7 @@ export function VideoPlayer({ movie, onOpenFiles }: { movie: Movie; onOpenFiles:
     return (
       <div
         ref={containerRef}
-        className={`player-shadow relative aspect-video min-h-[260px] overflow-hidden bg-black ${isFullscreen ? "rounded-none" : "rounded-2xl sm:rounded-3xl"}`}
+        className={`player-shadow relative aspect-video min-h-[190px] overflow-hidden bg-black sm:min-h-[260px] ${isFullscreen ? "rounded-none" : "rounded-2xl sm:rounded-3xl"}`}
       >
         {!embedStarted ? (
           <button className="group absolute inset-0 size-full overflow-hidden text-white" onClick={() => setEmbedStarted(true)} aria-label={`تشغيل ${movie.title}`}>
@@ -250,7 +250,7 @@ export function VideoPlayer({ movie, onOpenFiles }: { movie: Movie; onOpenFiles:
             <span className="navy-glass absolute left-1/2 top-1/2 grid size-20 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full shadow-2xl shadow-black/70 transition group-hover:scale-110 group-hover:brightness-125">
               <Play className="mr-1 fill-white" size={32} />
             </span>
-            <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent px-6 pb-5 pt-16 text-right">
+            <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent px-4 pb-3 pt-12 text-right sm:px-6 sm:pb-5 sm:pt-16">
               <strong className="block text-base sm:text-xl">{movie.title}</strong>
               <span className="mt-1 block text-xs text-zinc-300">اضغط لتشغيل الفيلم عبر مشغّل VK</span>
             </span>
@@ -280,7 +280,7 @@ export function VideoPlayer({ movie, onOpenFiles }: { movie: Movie; onOpenFiles:
   return (
     <div
       ref={containerRef}
-      className={`player-shadow group relative aspect-video min-h-[260px] overflow-hidden bg-black ${isFullscreen ? "rounded-none" : "rounded-2xl sm:rounded-3xl"}`}
+      className={`player-shadow group relative aspect-video min-h-[190px] overflow-hidden bg-black sm:min-h-[260px] ${isFullscreen ? "rounded-none" : "rounded-2xl sm:rounded-3xl"}`}
       onMouseMove={showControls}
       onMouseLeave={() => { if (isPlaying && !settingsOpen) setControlsVisible(false); }}
       onDoubleClick={() => void toggleFullscreen()}
@@ -352,7 +352,7 @@ export function VideoPlayer({ movie, onOpenFiles }: { movie: Movie; onOpenFiles:
               aria-label="مستوى الصوت"
             />
           </div>
-          <span className="mr-1 text-[10px] text-zinc-300 sm:text-xs" dir="ltr">{formatTime(currentTime)} / {formatTime(duration)}</span>
+          <span className="mr-1 hidden text-[10px] text-zinc-300 min-[380px]:inline sm:text-xs" dir="ltr">{formatTime(currentTime)} / {formatTime(duration)}</span>
 
           <div className="ml-auto flex items-center gap-0.5 sm:gap-1" dir="ltr">
             {activeSource && <a className="control-button hidden sm:inline-flex" href={activeSource.url} download aria-label="تنزيل الفيلم"><Download size={19} /></a>}
@@ -388,7 +388,7 @@ function SettingsMenu(props: {
 }) {
   const { panel, setPanel } = props;
   return (
-    <div className="glass absolute bottom-14 left-0 w-[min(310px,calc(100vw-32px))] overflow-hidden rounded-2xl text-right text-white shadow-2xl" dir="rtl" onDoubleClick={(event) => event.stopPropagation()}>
+    <div className="glass fixed inset-x-3 bottom-20 z-50 max-h-[min(70dvh,420px)] overflow-hidden rounded-2xl text-right text-white shadow-2xl sm:absolute sm:inset-x-auto sm:bottom-14 sm:left-0 sm:z-auto sm:w-[min(310px,calc(100vw-32px))]" dir="rtl" onDoubleClick={(event) => event.stopPropagation()}>
       <div className="flex h-12 items-center border-b border-white/8 px-3">
         {panel !== "main" && <button onClick={() => setPanel(panel === "appearance" ? "subtitles" : "main")} className="rounded-lg px-2 py-1 text-lg text-zinc-400 hover:bg-white/10">‹</button>}
         <span className="px-2 text-xs font-bold">{panelTitle(panel)}</span>

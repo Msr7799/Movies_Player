@@ -25,12 +25,15 @@
 html, body { min-height: 100%; }
 body {
   margin: 0;
+  overflow-x: hidden;
   background: radial-gradient(circle at 80% -10%, rgba(17, 29, 46, .62), transparent 36rem), #09090b;
   color: var(--foreground);
   font-family: var(--font-kufi), Arial, sans-serif;
 }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
+button, a, input, select { -webkit-tap-highlight-color: transparent; }
+button, a, select { touch-action: manipulation; }
 input[type="range"] { accent-color: var(--accent); }
 ::-webkit-scrollbar { width: 7px; height: 7px; }
 ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 999px; }

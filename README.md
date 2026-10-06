@@ -23,6 +23,8 @@ It provides a responsive cinematic interface with quality selection, playback sp
 
 The **AI Movie Search** panel accepts a movie or video title in any language. After at least three characters, a debounced Gemini-powered suggestions list offers up to six likely titles without replacing the user's text automatically. Gemini then identifies the selected title, original title, likely year, and useful aliases. Tavily runs up to three advanced searches in parallel, and Gemini ranks the real Tavily results so the interface shows a maximum of five legal sources.
 
+The viewer can filter by movie language or cinema—including Arabic, English, Indian, Turkish, Korean, Japanese, French, Spanish, and other world cinema—and can request a preferred subtitle language. These preferences influence Gemini title disambiguation, Tavily queries, and final result ranking. Subtitle availability is never invented; when a provider does not expose clear evidence, the viewer is told to verify availability on that service because languages can vary by account region.
+
 Search is restricted to known legitimate platforms, official video services, licensed streaming availability pages, and public-domain archives. The API does not search torrent sites, piracy mirrors, access bypasses, or unauthorized streaming servers.
 
 Create a local `.env` file using `.env.example`:

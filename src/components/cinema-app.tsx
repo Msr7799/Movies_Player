@@ -130,22 +130,22 @@ export function CinemaApp() {
   return (
     <main className="min-h-screen">
       <header className="sticky top-0 z-40 border-b border-white/5 bg-[#09090b]/85 backdrop-blur-xl">
-        <div className="mx-auto flex h-[72px] max-w-[1600px] items-center gap-4 px-4 sm:px-7">
+        <div className="mx-auto flex min-h-[64px] max-w-[1600px] items-center gap-2 px-3 py-2 sm:h-[72px] sm:gap-4 sm:px-7 sm:py-0">
           <button
             className="rounded-xl p-2 text-zinc-300 hover:bg-white/10 lg:hidden"
             onClick={() => setSidebarOpen(true)}
             aria-label="فتح المكتبة"
           ><Menu /></button>
-          <div className="flex items-center gap-2.5">
+          <div className="flex shrink-0 items-center gap-2 sm:gap-2.5">
             <span className="navy-glass grid size-10 place-items-center rounded-xl">
               <Play className="mr-0.5 fill-white" size={19} />
             </span>
-            <div>
+            <div className="hidden min-[400px]:block">
               <div className="text-lg font-black tracking-tight">سينما</div>
               <div className="text-[9px] tracking-[.24em] text-zinc-500">CINEMA PLAYER</div>
             </div>
           </div>
-          <div className="relative mx-auto hidden w-full max-w-md sm:block">
+          <div className="relative mx-auto hidden w-full max-w-md xl:block">
             <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500" size={17} />
             <input
               value={query}
@@ -156,14 +156,14 @@ export function CinemaApp() {
           </div>
           <button
             onClick={() => fileInput.current?.click()}
-            className="mr-auto flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-xs font-bold text-zinc-950 transition hover:bg-rose-100 sm:text-sm"
+            className="mr-auto flex shrink-0 items-center gap-2 rounded-xl bg-white px-3 py-2.5 text-xs font-bold text-zinc-950 transition hover:bg-rose-100 sm:px-4 sm:text-sm"
           >
             <FolderOpen size={17} />
             <span className="hidden sm:inline">فتح ملف</span>
           </button>
           <button
             onClick={() => { setUrlError(""); setUrlDialogOpen(true); }}
-            className="navy-glass flex items-center gap-2 rounded-xl px-3 py-2.5 text-xs font-bold text-rose-100 transition hover:brightness-125 sm:px-4 sm:text-sm"
+            className="navy-glass flex shrink-0 items-center gap-2 rounded-xl px-3 py-2.5 text-xs font-bold text-rose-100 transition hover:brightness-125 sm:px-4 sm:text-sm"
           >
             <Link2 size={17} />
             <span className="hidden sm:inline">فتح رابط</span>
@@ -172,7 +172,7 @@ export function CinemaApp() {
             href="https://github.com/msr7799"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-xs text-zinc-300 transition hover:border-rose-400/40 hover:bg-rose-500/10 hover:text-white"
+            className="hidden shrink-0 items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-xs text-zinc-300 transition hover:border-rose-400/40 hover:bg-rose-500/10 hover:text-white min-[520px]:flex"
             aria-label="حساب المطور MSR على GitHub"
           >
             <Image src="/assets/github.svg" alt="" width={17} height={17} className="invert" />
@@ -200,11 +200,11 @@ export function CinemaApp() {
           onSelect={(movie) => { setActiveMovie(movie); setSidebarOpen(false); }}
         />
 
-        <section className="min-w-0 px-3 py-5 sm:px-7 sm:py-8 lg:px-10">
+        <section className="min-w-0 px-2.5 py-4 sm:px-7 sm:py-8 lg:px-10">
           <div className="animate-fade-up mx-auto max-w-[1250px]">
             <MovieDiscovery onPlay={playDiscoveredResult} />
 
-            <div id="player-stage" className="mb-5 scroll-mt-24 flex items-end justify-between gap-4">
+            <div id="player-stage" className="mb-4 scroll-mt-20 flex items-end justify-between gap-3 sm:mb-5 sm:scroll-mt-24 sm:gap-4">
               <div>
                 <div className="mb-2 flex items-center gap-2 text-xs font-bold text-rose-400">
                   <span className="size-1.5 animate-pulse rounded-full bg-rose-500" />
@@ -231,11 +231,11 @@ export function CinemaApp() {
       </div>
 
       {urlDialogOpen && (
-        <div className="fixed inset-0 z-[80] grid place-items-center bg-black/75 p-4 backdrop-blur-sm" onMouseDown={() => setUrlDialogOpen(false)}>
+        <div className="fixed inset-0 z-[80] grid place-items-center overflow-y-auto bg-black/75 p-2.5 backdrop-blur-sm sm:p-4" onMouseDown={() => setUrlDialogOpen(false)}>
           <form
             onSubmit={openMovieUrl}
             onMouseDown={(event) => event.stopPropagation()}
-            className="glass w-full max-w-xl rounded-3xl p-5 shadow-2xl sm:p-7"
+            className="glass my-auto max-h-[calc(100dvh-20px)] w-full max-w-xl overflow-y-auto rounded-2xl p-4 shadow-2xl sm:max-h-[calc(100dvh-32px)] sm:rounded-3xl sm:p-7"
             dir="rtl"
           >
             <div className="mb-6 flex items-start gap-4">
@@ -291,7 +291,7 @@ function LibrarySidebar({ movies, activeId, loading, open, onClose, onSelect }: 
   return (
     <>
       {open && <button className="fixed inset-0 z-40 bg-black/70 lg:hidden" onClick={onClose} aria-label="إغلاق المكتبة" />}
-      <aside className={`fixed inset-y-0 right-0 z-50 w-[290px] border-l border-white/5 bg-[#0e0e11] p-4 transition-transform lg:sticky lg:top-[72px] lg:z-20 lg:h-[calc(100vh-72px)] lg:w-auto lg:translate-x-0 ${open ? "translate-x-0" : "translate-x-full"}`}>
+      <aside className={`fixed inset-y-0 right-0 z-50 w-[min(88vw,320px)] border-l border-white/5 bg-[#0e0e11] p-4 transition-transform lg:sticky lg:top-[72px] lg:z-20 lg:h-[calc(100vh-72px)] lg:w-auto lg:translate-x-0 ${open ? "translate-x-0" : "translate-x-full"}`}>
         <div className="mb-6 flex items-center justify-between pt-2">
           <div className="flex items-center gap-2 text-sm font-bold"><Library size={17} className="text-rose-400" /> مكتبتي</div>
           <button className="p-2 text-zinc-500 lg:hidden" onClick={onClose}><X size={18} /></button>

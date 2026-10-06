@@ -1,8 +1,12 @@
 "use client";
 
-import { ExternalLink, LoaderCircle, Play, Search, ShieldCheck, Sparkles } from "lucide-react";
+import { Captions, ExternalLink, Languages, LoaderCircle, Play, Search, ShieldCheck, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { DiscoveryResponse, DiscoveryResult } from "@/lib/media-types";
+import {
+  MOVIE_LANGUAGE_OPTIONS, SUBTITLE_LANGUAGE_OPTIONS,
+  type MovieLanguageValue, type SubtitleLanguageValue,
+} from "@/lib/search-options";
 
 type MovieSuggestion = { title: string; originalTitle: string; year: string };
 
@@ -14,6 +18,8 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
   const [suggestions, setSuggestions] = useState<MovieSuggestion[]>([]);
   const [suggesting, setSuggesting] = useState(false);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [movieLanguage, setMovieLanguage] = useState<MovieLanguageValue>("any");
+  const [subtitleLanguage, setSubtitleLanguage] = useState<SubtitleLanguageValue>("any");
   const suggestionCache = useRef(new Map<string, MovieSuggestion[]>());
   const suppressNextSuggestion = useRef(false);
 
@@ -25,7 +31,7 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
     }
     if (value.length < 3) return;
 
-    const cacheKey = value.toLocaleLowerCase();
+    const cacheKey = `${movieLanguage}:${value.toLocaleLowerCase()}`;
     const cached = suggestionCache.current.get(cacheKey);
     if (cached) return;
 
@@ -36,7 +42,7 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
         const response = await fetch("/api/suggest", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: value }),
+          body: JSON.stringify({ query: value, movieLanguage }),
           signal: controller.signal,
         });
         if (!response.ok) return;
@@ -56,7 +62,7 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [query]);
+  }, [query, movieLanguage]);
 
   function chooseSuggestion(suggestion: MovieSuggestion) {
     suppressNextSuggestion.current = true;
@@ -72,7 +78,7 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
       setSuggestionsOpen(false);
       return;
     }
-    const cached = suggestionCache.current.get(value.trim().toLocaleLowerCase());
+    const cached = suggestionCache.current.get(`${movieLanguage}:${value.trim().toLocaleLowerCase()}`);
     if (cached) setSuggestions(cached);
     setSuggestionsOpen(true);
   }
@@ -88,7 +94,7 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
       const response = await fetch("/api/discover", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: value }),
+        body: JSON.stringify({ query: value, movieLanguage, subtitleLanguage }),
       });
       const payload = await response.json() as DiscoveryResponse & { error?: string };
       if (!response.ok) throw new Error(payload.error || "تعذر إكمال البحث.");
@@ -112,8 +118,9 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
         </div>
       </div>
 
-      <form onSubmit={searchMovies} className="flex flex-col gap-2 sm:flex-row">
-        <div className="relative min-w-0 flex-1">
+      <form onSubmit={searchMovies} className="space-y-3">
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="relative min-w-0 flex-1">
           <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-rose-300" size={18} />
           <input
             value={query}
@@ -153,15 +160,43 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
               ))}
             </div>
           )}
+          </div>
+          <button
+            type="submit"
+            disabled={loading || query.trim().length < 2}
+            className="navy-glass flex h-12 items-center justify-center gap-2 rounded-2xl px-6 text-sm font-black transition hover:brightness-125 disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            {loading ? <LoaderCircle className="animate-spin" size={18} /> : <Sparkles size={18} />}
+            {loading ? "بحث عميق..." : "ابحث الآن"}
+          </button>
         </div>
-        <button
-          type="submit"
-          disabled={loading || query.trim().length < 2}
-          className="navy-glass flex h-12 items-center justify-center gap-2 rounded-2xl px-6 text-sm font-black transition hover:brightness-125 disabled:cursor-not-allowed disabled:opacity-45"
-        >
-          {loading ? <LoaderCircle className="animate-spin" size={18} /> : <Sparkles size={18} />}
-          {loading ? "بحث عميق..." : "ابحث الآن"}
-        </button>
+
+        <div className="grid gap-2 sm:grid-cols-2">
+          <label className="relative block">
+            <Languages className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-rose-300" size={16} />
+            <select
+              value={movieLanguage}
+              onChange={(event) => { setMovieLanguage(event.target.value as MovieLanguageValue); setSuggestions([]); setData(null); }}
+              className="h-11 w-full appearance-none rounded-xl border border-white/10 bg-black/25 pr-10 pl-8 text-xs font-bold text-zinc-300 outline-none transition focus:border-rose-400/60"
+              aria-label="لغة أو نوع الفيلم"
+            >
+              {MOVIE_LANGUAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`نوع الفيلم: ${option.label}`}</option>)}
+            </select>
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600">⌄</span>
+          </label>
+          <label className="relative block">
+            <Captions className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-rose-300" size={16} />
+            <select
+              value={subtitleLanguage}
+              onChange={(event) => { setSubtitleLanguage(event.target.value as SubtitleLanguageValue); setData(null); }}
+              className="h-11 w-full appearance-none rounded-xl border border-white/10 bg-black/25 pr-10 pl-8 text-xs font-bold text-zinc-300 outline-none transition focus:border-rose-400/60"
+              aria-label="لغة الترجمة المطلوبة"
+            >
+              {SUBTITLE_LANGUAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`الترجمة: ${option.label}`}</option>)}
+            </select>
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600">⌄</span>
+          </label>
+        </div>
       </form>
 
       <div aria-live="polite">
@@ -173,6 +208,8 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
               <span className="rounded-full border border-rose-400/30 bg-rose-500/20 px-3 py-1 text-xs font-bold text-rose-100">
                 {data.understoodTitle}{data.year ? ` (${data.year})` : ""}
               </span>
+              {movieLanguage !== "any" && <span className="rounded-full bg-white/7 px-3 py-1 text-[10px] text-zinc-300">{MOVIE_LANGUAGE_OPTIONS.find((option) => option.value === movieLanguage)?.label}</span>}
+              {subtitleLanguage !== "any" && <span className="rounded-full bg-white/7 px-3 py-1 text-[10px] text-zinc-300">{SUBTITLE_LANGUAGE_OPTIONS.find((option) => option.value === subtitleLanguage)?.label}</span>}
               <span className="flex items-center gap-1 text-[11px] text-zinc-500"><ShieldCheck size={14} className="text-rose-300" /> مصادر قانونية فقط</span>
             </div>
             <p className="mb-4 text-xs leading-6 text-zinc-400">{data.summary}</p>
@@ -193,7 +230,7 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
                         <p className="line-clamp-2 text-[11px] leading-5 text-zinc-500">{result.description || result.reason}</p>
                       </div>
                     </div>
-                    <div className="mt-3 flex gap-2">
+                    <div className="mt-3 flex flex-wrap gap-2">
                       {result.playable && result.playUrl && (
                         <button onClick={() => onPlay(result)} className="navy-glass flex h-9 items-center gap-2 rounded-xl px-3 text-xs font-bold transition hover:brightness-125">
                           <Play size={14} className="fill-white" /> تشغيل هنا
