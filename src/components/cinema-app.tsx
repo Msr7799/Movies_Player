@@ -123,7 +123,7 @@ export function CinemaApp() {
             aria-label="فتح المكتبة"
           ><Menu /></button>
           <div className="flex items-center gap-2.5">
-            <span className="grid size-10 place-items-center rounded-xl bg-gradient-to-br from-rose-500 to-pink-700 shadow-lg shadow-rose-950/40">
+            <span className="navy-glass grid size-10 place-items-center rounded-xl">
               <Play className="mr-0.5 fill-white" size={19} />
             </span>
             <div>
@@ -149,7 +149,7 @@ export function CinemaApp() {
           </button>
           <button
             onClick={() => { setUrlError(""); setUrlDialogOpen(true); }}
-            className="flex items-center gap-2 rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2.5 text-xs font-bold text-rose-200 transition hover:bg-rose-500/20 sm:px-4 sm:text-sm"
+            className="navy-glass flex items-center gap-2 rounded-xl px-3 py-2.5 text-xs font-bold text-rose-100 transition hover:brightness-125 sm:px-4 sm:text-sm"
           >
             <Link2 size={17} />
             <span className="hidden sm:inline">فتح رابط</span>
@@ -254,7 +254,7 @@ export function CinemaApp() {
               />
             </label>
             {urlError && <p className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">{urlError}</p>}
-            <button type="submit" className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-rose-500 text-sm font-black shadow-lg shadow-rose-950/40 transition hover:bg-rose-400">
+            <button type="submit" className="navy-glass mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-sm font-black transition hover:brightness-125">
               <Play size={18} className="fill-white" /> تشغيل الرابط
             </button>
           </form>
@@ -281,7 +281,7 @@ function LibrarySidebar({ movies, activeId, loading, open, onClose, onSelect }: 
           <button className="p-2 text-zinc-500 lg:hidden" onClick={onClose}><X size={18} /></button>
         </div>
         <nav className="mb-7 space-y-1 text-sm">
-          <div className="flex items-center gap-3 rounded-xl bg-rose-500/10 px-3 py-2.5 font-semibold text-rose-300"><Clapperboard size={17} /> الأفلام</div>
+          <div className="navy-glass flex items-center gap-3 rounded-xl px-3 py-2.5 font-semibold text-rose-200"><Clapperboard size={17} /> الأفلام</div>
           <div className="flex items-center gap-3 px-3 py-2.5 text-zinc-500"><History size={17} /> شوهد مؤخرًا</div>
         </nav>
         <div className="mb-3 flex items-center justify-between px-1 text-[11px] font-bold text-zinc-500">
@@ -298,7 +298,7 @@ function LibrarySidebar({ movies, activeId, loading, open, onClose, onSelect }: 
             <button
               key={movie.id}
               onClick={() => onSelect(movie)}
-              className={`group flex w-full items-center gap-3 rounded-xl p-2 text-right transition ${activeId === movie.id ? "bg-white/10" : "hover:bg-white/5"}`}
+              className={`group flex w-full items-center gap-3 rounded-xl p-2 text-right transition ${activeId === movie.id ? "navy-glass" : "hover:bg-white/5"}`}
             >
               <span className="relative grid aspect-video w-20 shrink-0 place-items-center overflow-hidden rounded-lg bg-gradient-to-br from-zinc-800 to-zinc-950">
                 {movie.poster ? <Image src={movie.poster} alt="" fill sizes="80px" unoptimized className="object-cover" /> : <Clapperboard size={19} className="text-zinc-600" />}
