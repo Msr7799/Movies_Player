@@ -1,6 +1,6 @@
 "use client";
 
-import { Captions, ExternalLink, Languages, LoaderCircle, Play, Search, ShieldCheck, Sparkles } from "lucide-react";
+import { Captions, Clapperboard, ExternalLink, Languages, LoaderCircle, Play, Search, ShieldCheck, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { DiscoveryResponse, DiscoveryResult } from "@/lib/media-types";
 import {
@@ -20,6 +20,7 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [movieLanguage, setMovieLanguage] = useState<MovieLanguageValue>("any");
   const [subtitleLanguage, setSubtitleLanguage] = useState<SubtitleLanguageValue>("any");
+  const [allowShortClips, setAllowShortClips] = useState(false);
   const suggestionCache = useRef(new Map<string, MovieSuggestion[]>());
   const suppressNextSuggestion = useRef(false);
 
@@ -94,7 +95,7 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
       const response = await fetch("/api/discover", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: value, movieLanguage, subtitleLanguage }),
+        body: JSON.stringify({ query: value, movieLanguage, subtitleLanguage, allowShortClips }),
       });
       const payload = await response.json() as DiscoveryResponse & { error?: string };
       if (!response.ok) throw new Error(payload.error || "تعذر إكمال البحث.");
@@ -114,7 +115,7 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
         </span>
         <div>
           <h2 id="ai-search-title" className="text-base font-black sm:text-lg">البحث الذكي عن الأفلام</h2>
-          <p className="mt-1 text-xs leading-6 text-zinc-400">اكتب الاسم بأي لغة. يفهمه Gemini ويبحث Tavily بعمق عن أفضل 5 مصادر قانونية موثوقة.</p>
+          <p className="mt-1 text-xs leading-6 text-zinc-400">اكتب الاسم بأي لغة. يبحث Gemini وTavily عن الفيلم الكامل في مصادر قانونية موثوقة، مع استبعاد المقاطع افتراضيًا.</p>
         </div>
       </div>
 
@@ -197,6 +198,25 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
             <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600">⌄</span>
           </label>
         </div>
+
+        <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-white/10 bg-black/20 px-4 py-3 transition hover:border-[#45658f]/70 hover:bg-[#111d2e]/45">
+          <span className="flex min-w-0 items-start gap-3">
+            <Clapperboard className="mt-0.5 shrink-0 text-slate-300" size={17} />
+            <span>
+              <span className="block text-xs font-bold text-zinc-100">السماح بالمقاطع القصيرة والتريلرات</span>
+              <span className="mt-1 block text-[10px] leading-5 text-zinc-500">مغلق افتراضيًا — يعرض الأفلام الكاملة وصفحات المشاهدة فقط.</span>
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            checked={allowShortClips}
+            onChange={(event) => { setAllowShortClips(event.target.checked); setData(null); }}
+            className="peer sr-only"
+          />
+          <span className="relative h-6 w-11 shrink-0 rounded-full border border-white/15 bg-black/40 transition peer-checked:border-[#6685ad] peer-checked:bg-[#263d5c] peer-focus-visible:ring-2 peer-focus-visible:ring-[#6685ad]">
+            <span className={`absolute right-1 top-1 size-4 rounded-full shadow transition-transform ${allowShortClips ? "-translate-x-5 bg-white" : "bg-zinc-500"}`} />
+          </span>
+        </label>
       </form>
 
       <div aria-live="polite">
@@ -210,6 +230,7 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
               </span>
               {movieLanguage !== "any" && <span className="rounded-full bg-white/7 px-3 py-1 text-[10px] text-zinc-300">{MOVIE_LANGUAGE_OPTIONS.find((option) => option.value === movieLanguage)?.label}</span>}
               {subtitleLanguage !== "any" && <span className="rounded-full bg-white/7 px-3 py-1 text-[10px] text-zinc-300">{SUBTITLE_LANGUAGE_OPTIONS.find((option) => option.value === subtitleLanguage)?.label}</span>}
+              <span className="rounded-full bg-white/7 px-3 py-1 text-[10px] text-zinc-300">{allowShortClips ? "المقاطع مسموحة" : "أفلام كاملة فقط"}</span>
               <span className="flex items-center gap-1 text-[11px] text-zinc-500"><ShieldCheck size={14} className="text-rose-300" /> مصادر قانونية فقط</span>
             </div>
             <p className="mb-4 text-xs leading-6 text-zinc-400">{data.summary}</p>
@@ -226,6 +247,9 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
                         <div className="mb-1 flex flex-wrap items-center gap-2">
                           <h3 className="line-clamp-1 text-sm font-bold">{result.title}</h3>
                           <span className="rounded-full bg-white/7 px-2 py-0.5 text-[9px] font-bold text-zinc-400">{result.provider}</span>
+                          <span className="rounded-full border border-[#45658f]/50 bg-[#111d2e]/80 px-2 py-0.5 text-[9px] font-bold text-slate-200">
+                            {result.contentType === "full_movie" ? "فيلم كامل" : result.contentType === "short_clip" ? "مقطع قصير" : "صفحة مشاهدة"}
+                          </span>
                         </div>
                         <p className="line-clamp-2 text-[11px] leading-5 text-zinc-500">{result.description || result.reason}</p>
                       </div>

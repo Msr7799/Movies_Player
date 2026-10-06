@@ -20,6 +20,7 @@ export type DiscoveryResult = {
   url: string;
   description: string;
   reason: string;
+  contentType: "full_movie" | "availability_page" | "short_clip";
   playable: boolean;
   playUrl?: string;
   kind?: "video" | "embed";

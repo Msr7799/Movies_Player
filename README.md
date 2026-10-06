@@ -17,6 +17,8 @@ It provides a responsive cinematic interface with quality selection, playback sp
 - Search the movie library.
 - Understand movie names in Arabic, English, and other languages with Gemini.
 - Run deep Tavily searches and return up to five verified legal sources.
+- Exclude trailers, excerpts, scenes, and other short videos by default.
+- Optionally allow short clips and trailers from the search filters.
 - Use a responsive Arabic-first interface on desktop and mobile.
 
 ## AI Movie Discovery
@@ -26,6 +28,8 @@ The **AI Movie Search** panel accepts a movie or video title in any language. Af
 The viewer can filter by movie language or cinema—including Arabic, English, Indian, Turkish, Korean, Japanese, French, Spanish, and other world cinema—and can request a preferred subtitle language. These preferences influence Gemini title disambiguation, Tavily queries, and final result ranking. Subtitle availability is never invented; when a provider does not expose clear evidence, the viewer is told to verify availability on that service because languages can vary by account region.
 
 Search is restricted to known legitimate platforms, official video services, licensed streaming availability pages, and public-domain archives. The API does not search torrent sites, piracy mirrors, access bypasses, or unauthorized streaming servers.
+
+Full-length viewing is the default search mode. Results are limited to sources with explicit evidence of a complete movie and legitimate pages that show where the full title can be watched. Ambiguous hosted videos, trailers, teasers, scenes, songs, reviews, and other excerpts are excluded even when this produces fewer than five results. Viewers can opt in to those shorter results with the **Allow short clips and trailers** filter; each result is visibly labeled as a full movie, viewing page, or short clip.
 
 Create a local `.env` file using `.env.example`:
 
