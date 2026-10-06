@@ -5,7 +5,7 @@ import { movieLanguageOption, subtitleLanguageOption } from "@/lib/search-option
 export const runtime = "nodejs";
 
 const LEGAL_DOMAINS = [
-  "youtube.com", "youtu.be", "vimeo.com", "archive.org", "justwatch.com",
+  "a.qfilm.tv", "ddramacafe-tv.bar", "youtube.com", "youtu.be", "vimeo.com", "archive.org", "justwatch.com",
   "reelgood.com", "netflix.com", "primevideo.com", "amazon.com", "disneyplus.com",
   "hulu.com", "max.com", "tubitv.com", "plex.tv", "pluto.tv", "mubi.com",
   "criterionchannel.com", "kanopy.com", "hoopladigital.com", "rakuten.tv",
@@ -13,7 +13,7 @@ const LEGAL_DOMAINS = [
 ] as const;
 
 const PLAYABLE_DOMAINS = [
-  "youtube.com", "youtu.be", "vimeo.com", "archive.org", "dailymotion.com",
+  "youtube.com", "youtu.be", "vimeo.com", "archive.org", "dailymotion.com","a.qfilm.tv", "ddramacafe-tv.bar",
 ] as const;
 
 const WINDOW_MS = 10 * 60 * 1000;
