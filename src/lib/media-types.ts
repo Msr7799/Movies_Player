@@ -1,0 +1,9 @@
+export type MediaSource = { quality: string; url: string; size: number };
+export type SubtitleTrack = { label: string; language: string; url: string };
+export type Movie = {
+  id: string;
+  title: string;
+  poster?: string;
+  sources: MediaSource[];
+  subtitles: SubtitleTrack[];
+};
