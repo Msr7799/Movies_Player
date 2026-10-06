@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import {
-  Clapperboard, FolderOpen, Github, History, Library, Menu, Play, Search,
+  Clapperboard, FolderOpen, History, Library, Menu, Play, Search,
   Sparkles, Upload, X,
 } from "lucide-react";
 import type { Movie, SubtitleTrack } from "@/lib/media-types";
@@ -110,7 +110,7 @@ export function CinemaApp() {
             className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-xs text-zinc-300 transition hover:border-rose-400/40 hover:bg-rose-500/10 hover:text-white"
             aria-label="حساب المطور MSR على GitHub"
           >
-            <Github size={17} />
+            <Image src="/assets/github.svg" alt="" width={17} height={17} className="invert" />
             <span className="hidden xl:inline">مطور الموقع <strong className="text-rose-400">MSR</strong></span>
             <span className="hidden sm:inline xl:hidden">MSR</span>
           </a>
