@@ -15,7 +15,26 @@ It provides a responsive cinematic interface with quality selection, playback sp
 - Customize subtitle size, color, weight, position, background, opacity, and shadow.
 - Remember playback progress and subtitle appearance in the browser.
 - Search the movie library.
+- Understand movie names in Arabic, English, and other languages with Gemini.
+- Run deep Tavily searches and return up to five verified legal sources.
 - Use a responsive Arabic-first interface on desktop and mobile.
+
+## AI Movie Discovery
+
+The **AI Movie Search** panel accepts a movie or video title in any language. After at least three characters, a debounced Gemini-powered suggestions list offers up to six likely titles without replacing the user's text automatically. Gemini then identifies the selected title, original title, likely year, and useful aliases. Tavily runs up to three advanced searches in parallel, and Gemini ranks the real Tavily results so the interface shows a maximum of five legal sources.
+
+Search is restricted to known legitimate platforms, official video services, licensed streaming availability pages, and public-domain archives. The API does not search torrent sites, piracy mirrors, access bypasses, or unauthorized streaming servers.
+
+Create a local `.env` file using `.env.example`:
+
+```bash
+TAVILY_API_KEY=your_server_key
+GEMINI_API_KEY=your_server_key
+```
+
+These values are read only by the server-side `/api/discover` route. Never rename them with a `NEXT_PUBLIC_` prefix. On Vercel, add the same variables under **Project Settings → Environment Variables** and redeploy.
+
+Direct media files and supported YouTube, Vimeo, or Internet Archive results can play inside Cinema Player. Other services open their official page because subscription, region, sign-in, DRM, and embedding rules are controlled by each provider.
 
 ## Playback Sources
 

@@ -6,7 +6,8 @@ import {
   Clapperboard, FolderOpen, History, Library, Link2, Menu, Play, Search,
   Sparkles, Upload, X,
 } from "lucide-react";
-import type { Movie, SubtitleTrack } from "@/lib/media-types";
+import type { DiscoveryResult, Movie, SubtitleTrack } from "@/lib/media-types";
+import { MovieDiscovery } from "./movie-discovery";
 import { VideoPlayer } from "./video-player";
 
 type LibraryResponse = { movies: Movie[] };
@@ -113,6 +114,19 @@ export function CinemaApp() {
     setSidebarOpen(false);
   }
 
+  function playDiscoveredResult(result: DiscoveryResult) {
+    if (!result.playable || !result.playUrl || !result.kind) return;
+    const movie: Movie = {
+      id: `discovered-${Date.now()}`,
+      title: result.title,
+      sources: [{ quality: result.provider, url: result.playUrl, size: 0, kind: result.kind }],
+      subtitles: [],
+    };
+    setMovies((current) => [movie, ...current]);
+    setActiveMovie(movie);
+    window.setTimeout(() => document.getElementById("player-stage")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  }
+
   return (
     <main className="min-h-screen">
       <header className="sticky top-0 z-40 border-b border-white/5 bg-[#09090b]/85 backdrop-blur-xl">
@@ -188,7 +202,9 @@ export function CinemaApp() {
 
         <section className="min-w-0 px-3 py-5 sm:px-7 sm:py-8 lg:px-10">
           <div className="animate-fade-up mx-auto max-w-[1250px]">
-            <div className="mb-5 flex items-end justify-between gap-4">
+            <MovieDiscovery onPlay={playDiscoveredResult} />
+
+            <div id="player-stage" className="mb-5 scroll-mt-24 flex items-end justify-between gap-4">
               <div>
                 <div className="mb-2 flex items-center gap-2 text-xs font-bold text-rose-400">
                   <span className="size-1.5 animate-pulse rounded-full bg-rose-500" />
