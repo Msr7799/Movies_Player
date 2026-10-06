@@ -4,9 +4,16 @@ function configuredGeminiModels() {
   return [...new Set([...configured, "gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-2.5-flash-lite"])];
 }
 
-export async function geminiJson<T>(prompt: string, responseSchema: object, timeoutMs = 30_000): Promise<T> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not configured");
+type GeminiApiKeyName = "GEMINI_API_KEY" | "GEMINI_AUTO_SUGGESTED_API_KEY";
+
+export async function geminiJson<T>(
+  prompt: string,
+  responseSchema: object,
+  timeoutMs = 30_000,
+  apiKeyName: GeminiApiKeyName = "GEMINI_API_KEY",
+): Promise<T> {
+  const apiKey = process.env[apiKeyName];
+  if (!apiKey) throw new Error(`${apiKeyName} is not configured`);
 
   for (const model of configuredGeminiModels()) {
     try {

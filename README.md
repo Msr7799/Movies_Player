@@ -30,9 +30,10 @@ Create a local `.env` file using `.env.example`:
 ```bash
 TAVILY_API_KEY=your_server_key
 GEMINI_API_KEY=your_server_key
+GEMINI_AUTO_SUGGESTED_API_KEY=your_second_server_key
 ```
 
-These values are read only by the server-side `/api/discover` route. Never rename them with a `NEXT_PUBLIC_` prefix. On Vercel, add the same variables under **Project Settings → Environment Variables** and redeploy.
+These values are read only by server-side routes. `/api/discover` uses `GEMINI_API_KEY`, while `/api/suggest` exclusively uses `GEMINI_AUTO_SUGGESTED_API_KEY` so typing suggestions do not consume the main search key's quota. Never rename them with a `NEXT_PUBLIC_` prefix. On Vercel, add the same variables under **Project Settings → Environment Variables** and redeploy.
 
 Direct media files and supported YouTube, Vimeo, or Internet Archive results can play inside Cinema Player. Other services open their official page because subscription, region, sign-in, DRM, and embedding rules are controlled by each provider.
 
