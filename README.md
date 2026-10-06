@@ -43,9 +43,11 @@ Supported library extensions:
 
 Playback compatibility depends on the codecs supported by the viewer's browser. MP4 files using H.264 video and AAC audio usually provide the widest browser compatibility.
 
-### Play a direct video URL
+### Play a movie URL
 
-The reusable `VideoPlayer` accepts remote sources through the `Movie.sources` model. It can be connected to a CDN, media server, object storage service, or another authorized direct media source.
+Select **Open URL** in the website header, paste the movie URL, optionally enter a title, and select **Play URL**. Direct MP4 and WebM links use Cinema Player's full controls. VK `video_ext.php` links open inside the VK embedded player and use VK's playback controls.
+
+The reusable `VideoPlayer` also accepts remote sources programmatically through the `Movie.sources` model. It can be connected to a CDN, media server, object storage service, or another authorized media source. Set `kind` to `"embed"` for a supported embedded player URL; regular direct media sources use `"video"` or omit the field.
 
 ```tsx
 import type { Movie } from "@/lib/media-types";

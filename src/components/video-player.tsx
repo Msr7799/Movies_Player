@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -69,6 +70,7 @@ export function VideoPlayer({ movie, onOpenFiles }: { movie: Movie; onOpenFiles:
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const qualityState = useRef({ time: 0, playing: false });
   const [sourceUrl, setSourceUrl] = useState(() => movie.sources[0]?.url ?? "");
+  const [embedStarted, setEmbedStarted] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
@@ -227,6 +229,50 @@ export function VideoPlayer({ movie, onOpenFiles }: { movie: Movie; onOpenFiles:
           <p className="mb-6 text-sm leading-7 text-zinc-500">ضع الفيلم داخل مجلد assets ليظهر تلقائيًا، أو افتحه مباشرة من جهازك.</p>
           <button onClick={onOpenFiles} className="rounded-xl bg-rose-500 px-5 py-3 text-sm font-bold shadow-lg shadow-rose-950 transition hover:bg-rose-400">اختيار فيلم من الجهاز</button>
         </div>
+      </div>
+    );
+  }
+
+  if (activeSource?.kind === "embed") {
+    return (
+      <div
+        ref={containerRef}
+        className={`player-shadow relative aspect-video min-h-[260px] overflow-hidden bg-black ${isFullscreen ? "rounded-none" : "rounded-2xl sm:rounded-3xl"}`}
+      >
+        {!embedStarted ? (
+          <button className="group absolute inset-0 size-full overflow-hidden text-white" onClick={() => setEmbedStarted(true)} aria-label={`تشغيل ${movie.title}`}>
+            {movie.poster ? (
+              <Image src={movie.poster} alt={`ملصق ${movie.title}`} fill priority sizes="(max-width: 1024px) 100vw, 80vw" className="object-cover transition duration-500 group-hover:scale-[1.02]" />
+            ) : (
+              <span className="absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,#4c1724,transparent_45%)]" />
+            )}
+            <span className="absolute inset-0 bg-black/30 transition group-hover:bg-black/20" />
+            <span className="absolute left-1/2 top-1/2 grid size-20 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/20 bg-rose-500/90 shadow-2xl shadow-black/70 transition group-hover:scale-110 group-hover:bg-rose-400">
+              <Play className="mr-1 fill-white" size={32} />
+            </span>
+            <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent px-6 pb-5 pt-16 text-right">
+              <strong className="block text-base sm:text-xl">{movie.title}</strong>
+              <span className="mt-1 block text-xs text-zinc-300">اضغط لتشغيل الفيلم عبر مشغّل VK</span>
+            </span>
+          </button>
+        ) : (
+          <iframe
+            src={sourceUrl}
+            title={movie.title}
+            className="size-full border-0"
+            allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+            allowFullScreen
+            referrerPolicy="strict-origin-when-cross-origin"
+          />
+        )}
+
+        <button
+          className="absolute left-3 top-3 z-20 grid size-10 place-items-center rounded-full border border-white/15 bg-black/65 text-white backdrop-blur-md transition hover:bg-rose-500"
+          onClick={() => void toggleFullscreen()}
+          aria-label="ملء الشاشة"
+        >
+          {isFullscreen ? <Minimize size={19} /> : <Maximize size={19} />}
+        </button>
       </div>
     );
   }

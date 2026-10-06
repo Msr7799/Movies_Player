@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import {
-  Clapperboard, FolderOpen, History, Library, Menu, Play, Search,
+  Clapperboard, FolderOpen, History, Library, Link2, Menu, Play, Search,
   Sparkles, Upload, X,
 } from "lucide-react";
 import type { Movie, SubtitleTrack } from "@/lib/media-types";
@@ -11,19 +11,29 @@ import { VideoPlayer } from "./video-player";
 
 type LibraryResponse = { movies: Movie[] };
 
-const SAMPLE_MOVIE: Movie = {
-  id: "welcome",
-  title: "أضف فيلمك وابدأ المشاهدة",
-  sources: [],
+const VEER_ZAARA_MOVIE: Movie = {
+  id: "veer-zaara-2004",
+  title: "فيلم فير زارا (2004) مترجم للعربية",
+  poster: "/assets/posters/thumnail-veer-zara.png",
+  sources: [{
+    quality: "VK HD",
+    url: "https://vk.com/video_ext.php?oid=848028866&id=456260186",
+    size: 0,
+    kind: "embed",
+  }],
   subtitles: [],
 };
 
 export function CinemaApp() {
-  const [movies, setMovies] = useState<Movie[]>([]);
-  const [activeMovie, setActiveMovie] = useState<Movie>(SAMPLE_MOVIE);
+  const [movies, setMovies] = useState<Movie[]>([VEER_ZAARA_MOVIE]);
+  const [activeMovie, setActiveMovie] = useState<Movie>(VEER_ZAARA_MOVIE);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [urlDialogOpen, setUrlDialogOpen] = useState(false);
+  const [urlValue, setUrlValue] = useState("");
+  const [urlTitle, setUrlTitle] = useState("");
+  const [urlError, setUrlError] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
   const objectUrls = useRef<string[]>([]);
 
@@ -31,8 +41,7 @@ export function CinemaApp() {
     try {
       const response = await fetch("/api/library", { cache: "no-store" });
       const data = (await response.json()) as LibraryResponse;
-      setMovies(data.movies);
-      setActiveMovie((current) => current.id === "welcome" && data.movies[0] ? data.movies[0] : current);
+      setMovies([VEER_ZAARA_MOVIE, ...data.movies.filter((movie) => movie.id !== VEER_ZAARA_MOVIE.id)]);
     } finally {
       setLoading(false);
     }
@@ -69,6 +78,41 @@ export function CinemaApp() {
     setSidebarOpen(false);
   }
 
+  function openMovieUrl(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setUrlError("");
+
+    let parsed: URL;
+    try {
+      parsed = new URL(urlValue.trim());
+      if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error("unsupported protocol");
+    } catch {
+      setUrlError("أدخل رابط HTTP أو HTTPS صحيحًا.");
+      return;
+    }
+
+    const isVkEmbed = /(^|\.)vk\.com$/i.test(parsed.hostname) && parsed.pathname.endsWith("/video_ext.php");
+    const filename = decodeURIComponent(parsed.pathname.split("/").pop() ?? "").replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim();
+    const movie: Movie = {
+      id: `url-${Date.now()}`,
+      title: urlTitle.trim() || (isVkEmbed ? "فيلم من VK" : filename || parsed.hostname),
+      sources: [{
+        quality: isVkEmbed ? "VK" : "رابط مباشر",
+        url: parsed.href,
+        size: 0,
+        kind: isVkEmbed ? "embed" : "video",
+      }],
+      subtitles: [],
+    };
+
+    setMovies((current) => [movie, ...current]);
+    setActiveMovie(movie);
+    setUrlValue("");
+    setUrlTitle("");
+    setUrlDialogOpen(false);
+    setSidebarOpen(false);
+  }
+
   return (
     <main className="min-h-screen">
       <header className="sticky top-0 z-40 border-b border-white/5 bg-[#09090b]/85 backdrop-blur-xl">
@@ -102,6 +146,13 @@ export function CinemaApp() {
           >
             <FolderOpen size={17} />
             <span className="hidden sm:inline">فتح ملف</span>
+          </button>
+          <button
+            onClick={() => { setUrlError(""); setUrlDialogOpen(true); }}
+            className="flex items-center gap-2 rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2.5 text-xs font-bold text-rose-200 transition hover:bg-rose-500/20 sm:px-4 sm:text-sm"
+          >
+            <Link2 size={17} />
+            <span className="hidden sm:inline">فتح رابط</span>
           </button>
           <a
             href="https://github.com/msr7799"
@@ -162,6 +213,53 @@ export function CinemaApp() {
           </div>
         </section>
       </div>
+
+      {urlDialogOpen && (
+        <div className="fixed inset-0 z-[80] grid place-items-center bg-black/75 p-4 backdrop-blur-sm" onMouseDown={() => setUrlDialogOpen(false)}>
+          <form
+            onSubmit={openMovieUrl}
+            onMouseDown={(event) => event.stopPropagation()}
+            className="glass w-full max-w-xl rounded-3xl p-5 shadow-2xl sm:p-7"
+            dir="rtl"
+          >
+            <div className="mb-6 flex items-start gap-4">
+              <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-rose-500/15 text-rose-400"><Link2 size={22} /></span>
+              <div>
+                <h2 className="text-lg font-black">تشغيل فيلم من رابط</h2>
+                <p className="mt-1 text-xs leading-6 text-zinc-500">يدعم روابط MP4 وWebM المباشرة، وروابط مشغّل VK من نوع video_ext.php.</p>
+              </div>
+              <button type="button" onClick={() => setUrlDialogOpen(false)} className="mr-auto rounded-xl p-2 text-zinc-500 hover:bg-white/10 hover:text-white" aria-label="إغلاق"><X size={19} /></button>
+            </div>
+
+            <label className="mb-4 block">
+              <span className="mb-2 block text-xs font-bold text-zinc-300">رابط الفيلم</span>
+              <input
+                type="url"
+                value={urlValue}
+                onChange={(event) => setUrlValue(event.target.value)}
+                placeholder="https://example.com/movie.mp4"
+                autoFocus
+                required
+                dir="ltr"
+                className="h-12 w-full rounded-xl border border-white/10 bg-black/35 px-4 text-left text-sm outline-none transition placeholder:text-zinc-700 focus:border-rose-500/60"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-2 block text-xs font-bold text-zinc-300">اسم الفيلم <span className="font-normal text-zinc-600">(اختياري)</span></span>
+              <input
+                value={urlTitle}
+                onChange={(event) => setUrlTitle(event.target.value)}
+                placeholder="اسم يظهر في المكتبة"
+                className="h-12 w-full rounded-xl border border-white/10 bg-black/35 px-4 text-sm outline-none transition placeholder:text-zinc-700 focus:border-rose-500/60"
+              />
+            </label>
+            {urlError && <p className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">{urlError}</p>}
+            <button type="submit" className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-rose-500 text-sm font-black shadow-lg shadow-rose-950/40 transition hover:bg-rose-400">
+              <Play size={18} className="fill-white" /> تشغيل الرابط
+            </button>
+          </form>
+        </div>
+      )}
     </main>
   );
 }
@@ -193,7 +291,7 @@ function LibrarySidebar({ movies, activeId, loading, open, onClose, onSelect }: 
           {loading && <div className="rounded-xl bg-white/5 p-4 text-xs text-zinc-500">جارِ قراءة مجلد assets...</div>}
           {!loading && movies.length === 0 && (
             <div className="rounded-xl border border-dashed border-white/10 p-4 text-center text-xs leading-6 text-zinc-500">
-              أضف فيلمًا إلى<br /><code dir="ltr" className="text-zinc-300">public/assets/videos</code>
+              أضف فيلمًا إلى<br /><code dir="ltr" className="text-zinc-300">البرنامج</code>
             </div>
           )}
           {movies.map((movie) => (
