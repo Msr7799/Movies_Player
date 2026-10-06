@@ -220,14 +220,14 @@ export function VideoPlayer({ movie, onOpenFiles }: { movie: Movie; onOpenFiles:
   if (!sourceUrl) {
     return (
       <div className="player-shadow relative grid aspect-video min-h-[300px] place-items-center overflow-hidden rounded-2xl border border-white/10 bg-[#050506] sm:rounded-3xl">
-        <div className="absolute inset-0 opacity-50" style={{ background: "radial-gradient(circle at 50% 35%, #4c1724, transparent 38%), radial-gradient(circle at 50% 115%, #1d1d25, transparent 45%)" }} />
+        <div className="absolute inset-0 opacity-60" style={{ background: "radial-gradient(circle at 50% 35%, #111d2e, transparent 38%), radial-gradient(circle at 50% 115%, #0b1523, transparent 45%)" }} />
         <div className="relative z-10 max-w-md px-6 text-center">
-          <span className="mx-auto mb-5 grid size-20 place-items-center rounded-full border border-rose-400/20 bg-rose-500/10 text-rose-400 shadow-2xl shadow-rose-900/30">
+          <span className="navy-glass mx-auto mb-5 grid size-20 place-items-center rounded-full text-rose-300">
             <Upload size={32} />
           </span>
           <h2 className="mb-2 text-xl font-bold">المسرح جاهز لفيلمك</h2>
           <p className="mb-6 text-sm leading-7 text-zinc-500">ضع الفيلم داخل مجلد assets ليظهر تلقائيًا، أو افتحه مباشرة من جهازك.</p>
-          <button onClick={onOpenFiles} className="rounded-xl bg-rose-500 px-5 py-3 text-sm font-bold shadow-lg shadow-rose-950 transition hover:bg-rose-400">اختيار فيلم من الجهاز</button>
+          <button onClick={onOpenFiles} className="navy-glass rounded-xl px-5 py-3 text-sm font-bold transition hover:brightness-125">اختيار فيلم من الجهاز</button>
         </div>
       </div>
     );
@@ -244,10 +244,10 @@ export function VideoPlayer({ movie, onOpenFiles }: { movie: Movie; onOpenFiles:
             {movie.poster ? (
               <Image src={movie.poster} alt={`ملصق ${movie.title}`} fill priority sizes="(max-width: 1024px) 100vw, 80vw" className="object-cover transition duration-500 group-hover:scale-[1.02]" />
             ) : (
-              <span className="absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,#4c1724,transparent_45%)]" />
+              <span className="absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,#111d2e,transparent_45%)]" />
             )}
             <span className="absolute inset-0 bg-black/30 transition group-hover:bg-black/20" />
-            <span className="absolute left-1/2 top-1/2 grid size-20 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/20 bg-rose-500/90 shadow-2xl shadow-black/70 transition group-hover:scale-110 group-hover:bg-rose-400">
+            <span className="navy-glass absolute left-1/2 top-1/2 grid size-20 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full shadow-2xl shadow-black/70 transition group-hover:scale-110 group-hover:brightness-125">
               <Play className="mr-1 fill-white" size={32} />
             </span>
             <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent px-6 pb-5 pt-16 text-right">
@@ -320,7 +320,7 @@ export function VideoPlayer({ movie, onOpenFiles }: { movie: Movie; onOpenFiles:
       )}
 
       {!isPlaying && (
-        <button onClick={togglePlay} className="absolute left-1/2 top-1/2 z-10 grid size-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/15 bg-black/45 text-white backdrop-blur-md transition hover:scale-110 hover:bg-rose-500 sm:size-20" aria-label="تشغيل">
+        <button onClick={togglePlay} className="navy-glass absolute left-1/2 top-1/2 z-10 grid size-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full text-white transition hover:scale-110 hover:brightness-125 sm:size-20" aria-label="تشغيل">
           <Play className="mr-1 fill-white" size={30} />
         </button>
       )}
