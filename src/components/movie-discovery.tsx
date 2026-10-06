@@ -177,7 +177,7 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
             <select
               value={movieLanguage}
               onChange={(event) => { setMovieLanguage(event.target.value as MovieLanguageValue); setSuggestions([]); setData(null); }}
-              className="h-11 w-full appearance-none rounded-xl border border-white/10 bg-black/25 pr-10 pl-8 text-xs font-bold text-zinc-300 outline-none transition focus:border-rose-400/60"
+              className="cinema-select h-11 w-full appearance-none rounded-xl border border-white/10 bg-black/25 pr-10 pl-8 text-xs font-bold outline-none transition focus:border-rose-400/60"
               aria-label="لغة أو نوع الفيلم"
             >
               {MOVIE_LANGUAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`نوع الفيلم: ${option.label}`}</option>)}
@@ -189,7 +189,7 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
             <select
               value={subtitleLanguage}
               onChange={(event) => { setSubtitleLanguage(event.target.value as SubtitleLanguageValue); setData(null); }}
-              className="h-11 w-full appearance-none rounded-xl border border-white/10 bg-black/25 pr-10 pl-8 text-xs font-bold text-zinc-300 outline-none transition focus:border-rose-400/60"
+              className="cinema-select h-11 w-full appearance-none rounded-xl border border-white/10 bg-black/25 pr-10 pl-8 text-xs font-bold outline-none transition focus:border-rose-400/60"
               aria-label="لغة الترجمة المطلوبة"
             >
               {SUBTITLE_LANGUAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`الترجمة: ${option.label}`}</option>)}

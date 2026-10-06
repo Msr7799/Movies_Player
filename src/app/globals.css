@@ -35,6 +35,24 @@ button { cursor: pointer; }
 button, a, input, select { -webkit-tap-highlight-color: transparent; }
 button, a, select { touch-action: manipulation; }
 input[type="range"] { accent-color: var(--accent); }
+.cinema-select {
+  color: #e6edf7;
+  color-scheme: dark;
+  background-color: rgba(7, 13, 22, .72);
+}
+.cinema-select option {
+  color: #e6edf7;
+  background-color: #111d2e;
+}
+.cinema-select option:checked {
+  color: #ffffff;
+  background: #294766;
+}
+.cinema-select option:hover,
+.cinema-select option:focus {
+  color: #ffffff;
+  background: #355a7f;
+}
 ::-webkit-scrollbar { width: 7px; height: 7px; }
 ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 999px; }
 ::-webkit-scrollbar-track { background: transparent; }
