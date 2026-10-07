@@ -705,7 +705,7 @@ function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, ope
   return (
     <>
       {open && <button className="fixed inset-0 z-40 bg-black/70 lg:hidden" onClick={onClose} aria-label="إغلاق المكتبة" />}
-      <aside className={`fixed inset-y-0 right-0 z-50 w-[min(92vw,360px)] touch-pan-y overflow-x-hidden overflow-y-auto overscroll-contain border-l border-white/5 bg-[#0e0e11]/98 p-4 shadow-2xl shadow-black/40 backdrop-blur-xl will-change-transform transition-[transform,width,opacity,padding,border-color,filter] duration-700 ease-[cubic-bezier(.22,1,.36,1)] lg:sticky lg:top-[72px] lg:z-20 lg:h-[calc(100dvh-72px)] lg:shrink-0 lg:overflow-hidden lg:shadow-none ${desktopVisible ? "lg:w-[280px] lg:translate-x-0 lg:opacity-100 lg:blur-0" : "lg:pointer-events-none lg:w-0 lg:translate-x-10 lg:border-transparent lg:p-0 lg:opacity-0 lg:blur-sm"} ${open ? "translate-x-0 opacity-100" : "pointer-events-none translate-x-full opacity-0 lg:pointer-events-auto"}`}>
+      <aside className={`mobile-library-sidebar fixed inset-y-0 right-0 z-50 flex h-[100dvh] w-[min(92vw,360px)] touch-pan-y flex-col overflow-hidden overscroll-contain border-l border-white/5 bg-[#0e0e11]/98 p-4 shadow-2xl shadow-black/40 backdrop-blur-xl will-change-transform transition-[transform,width,opacity,padding,border-color,filter] duration-700 ease-[cubic-bezier(.22,1,.36,1)] lg:sticky lg:top-[72px] lg:z-20 lg:h-[calc(100dvh-72px)] lg:shrink-0 lg:shadow-none ${desktopVisible ? "lg:w-[280px] lg:translate-x-0 lg:opacity-100 lg:blur-0" : "lg:pointer-events-none lg:w-0 lg:translate-x-10 lg:border-transparent lg:p-0 lg:opacity-0 lg:blur-sm"} ${open ? "translate-x-0 opacity-100" : "pointer-events-none translate-x-full opacity-0 lg:pointer-events-auto"}`}>
         <div className="mb-6 flex items-center justify-between pt-2">
           <div className="flex items-center gap-2 text-sm font-bold"><Library size={17} className="text-rose-400" /> مكتبتي</div>
           <button className="p-2 text-zinc-500 lg:hidden" onClick={onClose}><X size={18} /></button>
@@ -723,7 +723,7 @@ function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, ope
           <span>{count}</span>
         </div>
         <p className="mb-2 px-1 text-[9px] text-zinc-600">اضغط بزر الفأرة الأيمن على الفيلم لفتح مركز التخصيص.</p>
-        <div className="overscroll-contain touch-pan-y space-y-2 overflow-y-auto lg:max-h-[calc(100vh-250px)]">
+        <div className="mobile-library-list min-h-0 flex-1 touch-pan-y space-y-2 overflow-x-hidden overflow-y-scroll overscroll-contain pb-[max(1rem,env(safe-area-inset-bottom))]">
           {mode === "library" && loading && <div className="rounded-xl bg-white/5 p-4 text-xs text-zinc-500">جارِ قراءة مجلد assets...</div>}
           {mode === "library" && !loading && movies.length === 0 && (
             <div className="rounded-xl border border-dashed border-white/10 p-4 text-center text-xs leading-6 text-zinc-500">أضف فيلمًا إلى البرنامج</div>

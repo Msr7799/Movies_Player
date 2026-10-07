@@ -57,6 +57,18 @@ input[type="range"] { accent-color: var(--accent); }
 ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 999px; }
 ::-webkit-scrollbar-track { background: transparent; }
 
+/* The mobile drawer has one dedicated scroll owner. Nested auto-sized scroll
+   containers can swallow vertical touch gestures in Chrome/Android. */
+.mobile-library-sidebar,
+.mobile-library-list {
+  touch-action: pan-y;
+}
+
+.mobile-library-list {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
+}
+
 .admin-dashboard-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
