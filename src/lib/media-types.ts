@@ -15,6 +15,7 @@ export type Movie = {
   titleOrigin?: "user" | "smart" | "filename" | "catalog";
   poster?: string;
   categories?: MovieCategory[];
+  sortOrder?: number;
   sources: MediaSource[];
   subtitles: SubtitleTrack[];
 };

@@ -28,6 +28,7 @@ type EditorState = {
 };
 
 type AdminHistoryEntry = { movieId: string; movie: Movie; progress: number; duration: number; watchedAt: number };
+type ImportPreviewItem = { key: string; title: string; poster: string; qualities: number; raw: unknown };
 
 const EMPTY_EDITOR: EditorState = { title: "", url: "", poster: "", quality: "HLS • تلقائي", kind: "hls", categories: [] };
 
@@ -61,7 +62,11 @@ export function AdminDashboard() {
   const [autoClassify, setAutoClassify] = useState(true);
   const [importMessage, setImportMessage] = useState("");
   const [importError, setImportError] = useState("");
+  const [importPreview, setImportPreview] = useState<ImportPreviewItem[]>([]);
+  const [selectedImport, setSelectedImport] = useState<string[]>([]);
+  const [importDragKey, setImportDragKey] = useState("");
   const [dashboardWarning, setDashboardWarning] = useState("");
+  const [editorPanelOpen, setEditorPanelOpen] = useState(true);
 
   const loadDashboard = useCallback(async () => {
     const [catalogResponse, statsResponse, historyResponse] = await Promise.all([
@@ -253,18 +258,70 @@ export function AdminDashboard() {
     } finally { setBusy(false); }
   }
 
+  function parseImportPreview(value = importJson) {
+    const normalized = value.replace(/^\uFEFF/, "").trim();
+    if (!normalized) throw new Error("ملف JSON فارغ.");
+    const parsed = JSON.parse(normalized) as unknown;
+    let records: unknown[] = [];
+    if (Array.isArray(parsed)) records = parsed;
+    else if (parsed && typeof parsed === "object") {
+      const object = parsed as Record<string, unknown>;
+      if (Array.isArray(object.movies)) records = object.movies;
+      else if ((typeof object.title === "string" || typeof object.name === "string") && (Array.isArray(object.qualities) || Array.isArray(object.streams) || Array.isArray(object.sources) || typeof object.url === "string")) records = [object];
+      else records = Object.values(object);
+    }
+    const preview = records.flatMap((record, index): ImportPreviewItem[] => {
+      if (!record || typeof record !== "object" || Array.isArray(record)) return [];
+      const item = record as Record<string, unknown>;
+      const title = String(item.title ?? item.name ?? "").trim();
+      const sources = [item.qualities, item.streams, item.sources].find(Array.isArray) as unknown[] | undefined;
+      if (!title || (!sources?.length && typeof item.url !== "string")) return [];
+      return [{
+        key: `${String(item.id ?? title)}-${index}`,
+        title,
+        poster: String(item.thumbnailURL ?? item.thumbnail ?? item.poster ?? item.image ?? ""),
+        qualities: sources?.length ?? 1,
+        raw: record,
+      }];
+    });
+    if (!preview.length) throw new Error("لم يتم العثور على أفلام صالحة داخل JSON.");
+    setImportPreview(preview);
+    setSelectedImport([]);
+    setImportError("");
+    setImportMessage(`تمت معاينة ${preview.length} فيلمًا. رتّب القائمة واحذف غير المطلوب ثم انشر.`);
+    return preview;
+  }
+
+  function removeSelectedImport() {
+    setImportPreview((current) => current.filter((item) => !selectedImport.includes(item.key)));
+    setSelectedImport([]);
+  }
+
+  function reorderImport(targetKey: string) {
+    if (!importDragKey || importDragKey === targetKey) return;
+    setImportPreview((current) => {
+      const from = current.findIndex((item) => item.key === importDragKey);
+      const to = current.findIndex((item) => item.key === targetKey);
+      if (from < 0 || to < 0) return current;
+      const next = [...current];
+      const [dragged] = next.splice(from, 1);
+      next.splice(to, 0, dragged);
+      return next;
+    });
+    setImportDragKey("");
+  }
+
   async function importCatalog() {
     setBusy(true); setImportMessage(""); setImportError("");
     try {
       if (!rightsConfirmed) throw new Error("أكد حقوق نشر المصادر قبل الاستيراد.");
-      const normalizedJson = importJson.replace(/^\uFEFF/, "").trim();
-      if (!normalizedJson) throw new Error("ملف JSON فارغ.");
-      let catalog: unknown;
-      try { catalog = JSON.parse(normalizedJson) as unknown; }
+      let preview = importPreview;
+      try { if (!preview.length) preview = parseImportPreview(); }
       catch (parseError) {
         const detail = parseError instanceof Error ? parseError.message : "صيغة غير صالحة";
         throw new Error(`JSON غير مكتمل أو غير صالح: ${detail}`);
       }
+      const catalog = { movies: preview.map((item) => item.raw) };
       const response = await fetch("/api/admin/movies/import", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ catalog, rightsConfirmed: true }),
@@ -289,6 +346,8 @@ export function AdminDashboard() {
         setImportMessage(`تم استيراد ${payload.imported ?? 0} وتجاهل ${payload.ignored ?? 0}.`);
         setSelectedMovies(ids);
       }
+      setImportPreview([]);
+      setSelectedImport([]);
     } catch (cause) { setImportError(cause instanceof Error ? cause.message : "تعذر الاستيراد."); }
     finally { setBusy(false); }
   }
@@ -323,6 +382,10 @@ export function AdminDashboard() {
       <div className="mx-auto max-w-7xl">
         <header className="mb-6 flex flex-wrap items-center gap-3">
           <div className="min-w-0 flex-1"><p className="text-xs font-bold text-rose-300">ADMIN ACCESS</p><h1 className="mt-1 text-2xl font-black">لوحة إدارة سينما</h1></div>
+          <button onClick={() => setEditorPanelOpen((value) => !value)} className="group relative grid size-10 place-items-center rounded-xl border border-white/10 bg-white/5" title={editorPanelOpen ? "إغلاق أدوات النشر" : "فتح أدوات النشر"}>
+            <Image src={editorPanelOpen ? "/sidebar-on.png" : "/sidebar-off.png"} alt="" width={24} height={24} className="transition group-hover:opacity-0" />
+            <Image src={editorPanelOpen ? "/sidebar-on-hover.png" : "/sidebar-off-hover.png"} alt="" width={24} height={24} className="absolute opacity-0 transition group-hover:opacity-100" />
+          </button>
           <Link href="/" className="rounded-xl border border-white/10 px-4 py-2 text-xs font-bold hover:bg-white/5"><Play className="ml-2 inline" size={15} />المشغل</Link>
           <button onClick={() => void logout()} className="rounded-xl border border-red-400/20 px-4 py-2 text-xs font-bold text-red-200 hover:bg-red-500/10"><LogOut className="ml-2 inline" size={15} />خروج</button>
         </header>
@@ -336,8 +399,8 @@ export function AdminDashboard() {
           <StatCard icon={<Play />} label="سجلات التشغيل" value={stats?.historyCount ?? 0} />
         </section>
 
-        <div className="grid gap-6 xl:grid-cols-[390px_minmax(0,1fr)]">
-          <form onSubmit={saveMovie} className="glass h-fit rounded-3xl p-5">
+        <div className={`grid gap-6 ${editorPanelOpen ? "xl:grid-cols-[390px_minmax(0,1fr)]" : "grid-cols-1"}`}>
+          {editorPanelOpen && <form onSubmit={saveMovie} className="glass h-fit rounded-3xl p-5">
             <div className="mb-5 flex items-center gap-3"><span className="navy-glass grid size-10 place-items-center rounded-xl">{editor.id ? <Pencil size={18} /> : <Plus size={18} />}</span><div><h2 className="text-sm font-black">{editor.id ? "تعديل الفيلم" : "نشر فيلم جديد"}</h2><p className="mt-1 text-[10px] text-zinc-500">يظهر فورًا لكل زوار الموقع</p></div>{editor.id && <button type="button" onClick={() => setEditor(EMPTY_EDITOR)} className="mr-auto rounded-lg p-2 text-zinc-500 hover:bg-white/10"><X size={17} /></button>}</div>
             <EditorInput label="اسم الفيلم" value={editor.title} onChange={(title) => setEditor({ ...editor, title })} required />
             <EditorInput label="رابط HLS أو الفيديو" value={editor.url} onChange={(url) => setEditor({ ...editor, url })} required ltr />
@@ -354,7 +417,7 @@ export function AdminDashboard() {
             </fieldset>
             {error && <p className="mb-3 rounded-xl bg-red-500/10 p-3 text-xs text-red-200">{error}</p>}
             <button disabled={busy} className="navy-glass flex h-12 w-full items-center justify-center gap-2 rounded-xl text-sm font-black disabled:opacity-50"><Save size={17} />{busy ? "جارِ الحفظ..." : editor.id ? "حفظ التعديلات" : "نشر للعامة"}</button>
-          </form>
+          </form>}
 
           <div className="space-y-6">
             <section className="glass rounded-3xl p-5">
@@ -364,11 +427,27 @@ export function AdminDashboard() {
 
             <section className="glass rounded-3xl p-5">
               <div className="mb-4 flex items-center gap-3"><span className="navy-glass grid size-10 place-items-center rounded-xl"><Upload size={17} /></span><div><h2 className="text-sm font-black">استيراد قائمة JSON للعامة</h2><p className="mt-1 text-[10px] text-zinc-500">يدعم الاسم، الرابط، thumbnail/poster، sources أو streams والتصنيفات.</p></div></div>
-              <input type="file" accept="application/json,.json" onChange={(event) => { const file = event.target.files?.[0]; if (file) void file.text().then(setImportJson); }} className="mb-3 block w-full text-xs text-zinc-500" />
-              <textarea value={importJson} onChange={(event) => setImportJson(event.target.value)} placeholder='[{"title":"اسم الفيلم","url":"https://.../master.m3u8","thumbnail":"https://.../poster.jpg"}]' dir="ltr" className="min-h-40 w-full rounded-2xl border border-white/10 bg-black/25 p-3 text-xs outline-none focus:border-rose-400" />
+              <input type="file" accept="application/json,.json" onChange={(event) => { const file = event.target.files?.[0]; if (file) void file.text().then((text) => { setImportJson(text); try { parseImportPreview(text); } catch (cause) { setImportError(cause instanceof Error ? cause.message : "JSON غير صالح."); } }); }} className="mb-3 block w-full text-xs text-zinc-500" />
+              <textarea value={importJson} onChange={(event) => { setImportJson(event.target.value); setImportPreview([]); }} onBlur={() => { if (importJson.trim() && !importPreview.length) { try { parseImportPreview(); } catch (cause) { setImportError(cause instanceof Error ? cause.message : "JSON غير صالح."); } } }} placeholder='[{"title":"اسم الفيلم","url":"https://.../master.m3u8","thumbnail":"https://.../poster.jpg"}]' dir="ltr" className="min-h-40 w-full rounded-2xl border border-white/10 bg-black/25 p-3 text-xs outline-none focus:border-rose-400" />
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" disabled={!importJson.trim()} onClick={() => { try { parseImportPreview(); } catch (cause) { setImportError(cause instanceof Error ? cause.message : "JSON غير صالح."); } }} className="rounded-xl bg-cyan-500/10 px-3 py-2 text-[11px] font-bold text-cyan-200 disabled:opacity-40">تحليل ومعاينة JSON</button>
+                {importPreview.length > 0 && <button type="button" disabled={!selectedImport.length} onClick={removeSelectedImport} className="rounded-xl bg-red-500/10 px-3 py-2 text-[11px] text-red-200 disabled:opacity-30"><Trash2 className="ml-1 inline" size={13} />حذف المحدد ({selectedImport.length})</button>}
+              </div>
+              {importPreview.length > 0 && <div className="mt-4 rounded-2xl border border-white/8 bg-black/15 p-3">
+                <div className="mb-3 flex items-center justify-between text-[10px] text-zinc-500"><span>معاينة قبل النشر — اسحب لترتيب الأفلام</span><span>{importPreview.length}</span></div>
+                <div className="max-h-[420px] space-y-2 overflow-y-auto">
+                  {importPreview.map((item, index) => <div key={item.key} draggable onDragStart={() => setImportDragKey(item.key)} onDragOver={(event) => event.preventDefault()} onDrop={() => reorderImport(item.key)} className="flex cursor-grab items-center gap-2 rounded-xl border border-white/8 bg-black/25 p-2 active:cursor-grabbing">
+                    <Image src="/sidebar-off.png" alt="سحب" width={18} height={18} className="shrink-0 opacity-60" />
+                    <input type="checkbox" checked={selectedImport.includes(item.key)} onChange={() => setSelectedImport((current) => current.includes(item.key) ? current.filter((key) => key !== item.key) : [...current, item.key])} />
+                    <span className="relative grid aspect-video w-20 shrink-0 place-items-center overflow-hidden rounded-lg bg-black">{item.poster ? <Image src={item.poster} alt="" fill sizes="80px" unoptimized className="object-cover" /> : <Clapperboard size={16} className="text-zinc-700" />}</span>
+                    <span className="min-w-0 flex-1"><strong className="block truncate text-[11px]">{index + 1}. {item.title}</strong><small className="mt-1 block text-[9px] text-zinc-600">{item.qualities} جودة/مصدر</small></span>
+                    <button type="button" onClick={() => setImportPreview((current) => current.filter((entry) => entry.key !== item.key))} className="rounded-lg p-2 text-zinc-600 hover:bg-red-500/10 hover:text-red-200"><Trash2 size={14} /></button>
+                  </div>)}
+                </div>
+              </div>}
               <label className="my-3 flex items-start gap-2 text-xs text-zinc-400"><input type="checkbox" checked={rightsConfirmed} onChange={(event) => setRightsConfirmed(event.target.checked)} className="mt-1" />أؤكد أنني أملك حق نشر وتشغيل الروابط المستوردة.</label>
               <label className="mb-3 flex items-start gap-2 text-xs text-zinc-400"><input type="checkbox" checked={autoClassify} onChange={(event) => setAutoClassify(event.target.checked)} className="mt-1" /><Sparkles size={14} className="mt-0.5 text-violet-300" />تصنيف الأفلام المستوردة تلقائيًا بواسطة Gemini.</label>
-              <button disabled={busy || !importJson.trim()} onClick={() => void importCatalog()} className="navy-glass rounded-xl px-4 py-3 text-xs font-black disabled:opacity-40"><Upload className="ml-2 inline" size={15} />استيراد ونشر للعامة</button>
+              <button disabled={busy || !importPreview.length} onClick={() => void importCatalog()} className="navy-glass rounded-xl px-4 py-3 text-xs font-black disabled:opacity-40"><Upload className="ml-2 inline" size={15} />نشر {importPreview.length || ""} فيلمًا للعامة</button>
               {importMessage && <p className="mt-3 rounded-xl bg-emerald-500/10 p-3 text-xs text-emerald-200">{importMessage}</p>}
               {importError && <p className="mt-3 rounded-xl bg-red-500/10 p-3 text-xs leading-6 text-red-200">{importError}</p>}
             </section>

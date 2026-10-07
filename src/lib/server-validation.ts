@@ -56,6 +56,7 @@ export function sanitizeMovie(value: unknown, keepId = true): Movie {
       : "catalog",
     poster: poster || undefined,
     categories: validMovieCategories(input.categories),
+    sortOrder: typeof input.sortOrder === "number" && Number.isFinite(input.sortOrder) ? Math.max(0, Math.floor(input.sortOrder)) : undefined,
     sources,
     subtitles,
   };

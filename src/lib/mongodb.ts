@@ -38,6 +38,7 @@ export async function ensureDatabaseIndexes() {
     global.__anyMovieMongoIndexes = movieDatabase().then(async (database) => {
       await Promise.all([
         database.collection("movies").createIndex({ updatedAt: -1 }),
+        database.collection("movies").createIndex({ sortOrder: 1, updatedAt: -1 }),
         database.collection("movies").createIndex({ categories: 1, updatedAt: -1 }),
         database.collection("playback_history").createIndex({ visitorId: 1, movieId: 1 }, { unique: true }),
         database.collection("playback_history").createIndex({ watchedAt: -1 }),

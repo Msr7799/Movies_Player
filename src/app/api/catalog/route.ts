@@ -10,7 +10,7 @@ export async function GET() {
     const database = await ensureDatabaseIndexes();
     const documents = await database.collection<MovieDocument>("movies")
       .find({}, { projection: { _id: 0, createdAt: 0, updatedAt: 0 } })
-      .sort({ updatedAt: -1 })
+      .sort({ sortOrder: 1, updatedAt: -1 })
       .limit(200)
       .toArray();
     return Response.json({ movies: documents });

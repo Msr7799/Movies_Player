@@ -69,8 +69,8 @@ export async function POST(request: Request) {
     const input = records(body.catalog).slice(0, 200);
     const movies: Movie[] = [];
     let ignored = 0;
-    for (const record of input) {
-      try { movies.push(sanitizeMovie(normalizedRecord(record))); }
+    for (const [index, record] of input.entries()) {
+      try { movies.push(sanitizeMovie({ ...(normalizedRecord(record) as object), sortOrder: index })); }
       catch { ignored += 1; }
     }
     const database = await ensureDatabaseIndexes();

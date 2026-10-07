@@ -1,7 +1,7 @@
 function configuredGeminiModels() {
   const configured = `${process.env.GEMINI_MODELS_LITE ?? ""} ${process.env.GEMINI_PREFLIGHT_MODELS ?? ""}`
     .match(/gemini-[a-z0-9._-]+/gi) ?? [];
-  return [...new Set([...configured, "gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-2.5-flash-lite"])];
+  return [...new Set([...configured, "gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-3.1-flash-lite"])];
 }
 
 type GeminiApiKeyName = "GEMINI_API_KEY" | "GEMINI_AUTO_SUGGESTED_API_KEY";
@@ -26,7 +26,7 @@ async function generateGeminiJson<T>(
   const apiKey = process.env[apiKeyName];
   if (!apiKey) throw new GeminiRequestError(`${apiKeyName} is not configured`, "missing-key");
 
-  let lastFailure: GeminiRequestError | null = null;
+  const failures: GeminiRequestError[] = [];
 
   for (const model of configuredGeminiModels()) {
     try {
@@ -56,7 +56,7 @@ async function generateGeminiJson<T>(
             : response.status === 404
               ? "model"
               : "request";
-        lastFailure = new GeminiRequestError(detail, reason);
+        failures.push(new GeminiRequestError(detail, reason));
         continue;
       }
       const payload = await response.json() as {
@@ -64,17 +64,20 @@ async function generateGeminiJson<T>(
       };
       const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("").trim();
       if (text) return JSON.parse(text) as T;
-      lastFailure = new GeminiRequestError(`${model} returned no JSON output`, "request");
+      failures.push(new GeminiRequestError(`${model} returned no JSON output`, "request"));
     } catch (cause) {
-      if (cause instanceof GeminiRequestError) lastFailure = cause;
+      if (cause instanceof GeminiRequestError) failures.push(cause);
       else if (cause instanceof Error && (cause.name === "TimeoutError" || cause.name === "AbortError")) {
-        lastFailure = new GeminiRequestError(`${model} timed out`, "timeout");
+        failures.push(new GeminiRequestError(`${model} timed out`, "timeout"));
       } else {
-        lastFailure = new GeminiRequestError(`${model} returned an invalid response`, "request");
+        failures.push(new GeminiRequestError(`${model} returned an invalid response`, "request"));
       }
     }
   }
-  throw lastFailure ?? new GeminiRequestError("Gemini could not process this request", "request");
+  const primaryFailure = failures.find((failure) => failure.reason !== "model") ?? failures[0];
+  if (!primaryFailure) throw new GeminiRequestError("Gemini could not process this request", "request");
+  const attempts = failures.map((failure) => failure.message).join(" | ");
+  throw new GeminiRequestError(attempts, primaryFailure.reason);
 }
 
 export async function geminiJson<T>(

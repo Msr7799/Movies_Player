@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Image from "next/image";
 import {
-  BarChart3, Clapperboard, FolderOpen, History, Library, Link2, Menu, Pencil, Play, Search,
-  SlidersHorizontal, Sparkles, Trash2, X,
+  BarChart3, Clapperboard, FolderOpen, History, Library, Link2, Pencil, Play, Search,
+  Sparkles, Trash2, X,
 } from "lucide-react";
 import type { DiscoveryResult, Movie, PlaybackHistoryEntry, PlaybackHistorySnapshot, SubtitleTrack } from "@/lib/media-types";
 import { trackAnalytics, visitorId } from "@/lib/browser-analytics";
@@ -72,6 +73,7 @@ export function CinemaApp() {
   const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>("all");
   const [categoryColors, setCategoryColors] = useState<CategoryColors>(DEFAULT_CATEGORY_COLORS);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarEnabled, setSidebarEnabled] = useState(true);
   const [urlDialogOpen, setUrlDialogOpen] = useState(false);
   const [urlValue, setUrlValue] = useState("");
   const [urlTitle, setUrlTitle] = useState("");
@@ -322,6 +324,21 @@ export function CinemaApp() {
     if (!response.ok) setCategoryColors(categoryColors);
   }
 
+  function reorderMovies(draggedId: string, targetId: string) {
+    if (!adminAuthenticated || draggedId === targetId) return;
+    const from = movies.findIndex((movie) => movie.id === draggedId);
+    const to = movies.findIndex((movie) => movie.id === targetId);
+    if (from < 0 || to < 0) return;
+    const reordered = [...movies];
+    const [dragged] = reordered.splice(from, 1);
+    reordered.splice(to, 0, dragged);
+    const withOrder = reordered.map((movie, sortOrder) => ({ ...movie, sortOrder }));
+    setMovies(withOrder);
+    void fetch("/api/admin/movies/reorder", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: withOrder.map((movie) => movie.id) }),
+    }).catch(() => undefined);
+  }
+
   function openLocalFiles(files: FileList | null) {
     if (!files?.length) return;
     const all = Array.from(files);
@@ -435,10 +452,13 @@ export function CinemaApp() {
       <header className="sticky top-0 z-40 border-b border-white/5 bg-[#09090b]/85 backdrop-blur-xl">
         <div className="mx-auto flex min-h-[64px] max-w-[1600px] items-center gap-2 px-3 py-2 sm:h-[72px] sm:gap-4 sm:px-7 sm:py-0">
           <button
-            className="rounded-xl p-2 text-zinc-300 hover:bg-white/10 lg:hidden"
-            onClick={() => setSidebarOpen(true)}
+            className="group relative grid size-10 shrink-0 place-items-center rounded-xl hover:bg-white/10"
+            onClick={() => { if (window.matchMedia("(min-width: 1024px)").matches) setSidebarEnabled((value) => !value); else setSidebarOpen(true); }}
             aria-label="فتح المكتبة"
-          ><Menu /></button>
+          >
+            <Image src={sidebarEnabled ? "/sidebar-on-toggle.png" : "/sidebar-off-1.png"} alt="" width={24} height={24} className="transition group-hover:opacity-0" />
+            <Image src="/sidebare-off-toggle.png" alt="" width={24} height={24} className="absolute opacity-0 transition group-hover:opacity-100" />
+          </button>
           <div className="flex shrink-0 items-center gap-2 sm:gap-2.5">
             <span className="navy-glass grid size-10 place-items-center rounded-xl">
               <Play className="mr-0.5 fill-white" size={19} />
@@ -501,7 +521,7 @@ export function CinemaApp() {
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-[1600px] lg:grid-cols-[280px_minmax(0,1fr)]">
+      <div className={`mx-auto grid max-w-[1600px] ${sidebarEnabled ? "lg:grid-cols-[280px_minmax(0,1fr)]" : "lg:grid-cols-1"}`}>
         <LibrarySidebar
           movies={filteredMovies}
           history={filteredHistory}
@@ -519,6 +539,8 @@ export function CinemaApp() {
           categoryColors={categoryColors}
           onCategorizeMovie={(movie, categories) => void updateMovieCategories(movie, categories)}
           onCategoryColorChange={(category, color) => void updateCategoryColor(category, color)}
+          onReorder={reorderMovies}
+          desktopVisible={sidebarEnabled}
           onRenameHistory={(movie) => void renameHistoryMovie(movie)}
           onDeleteHistory={(movieId) => void deleteHistoryMovie(movieId)}
           onRenameMovie={(movie) => void renameLibraryMovie(movie)}
@@ -634,7 +656,7 @@ export function CinemaApp() {
   );
 }
 
-function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, open, onClose, onSelect, canManage, query, onQueryChange, selectedCategory, onCategoryChange, categoryColors, onCategorizeMovie, onCategoryColorChange, onRenameHistory, onDeleteHistory, onRenameMovie, onDeleteMovie }: {
+function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, open, onClose, onSelect, canManage, query, onQueryChange, selectedCategory, onCategoryChange, categoryColors, onCategorizeMovie, onCategoryColorChange, onReorder, desktopVisible, onRenameHistory, onDeleteHistory, onRenameMovie, onDeleteMovie }: {
   movies: Movie[];
   history: HistoryEntry[];
   mode: SidebarMode;
@@ -652,6 +674,8 @@ function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, ope
   categoryColors: CategoryColors;
   onCategorizeMovie: (movie: Movie, categories: MovieCategory[]) => void;
   onCategoryColorChange: (category: MovieCategory, color: string) => void;
+  onReorder: (draggedId: string, targetId: string) => void;
+  desktopVisible: boolean;
   onRenameHistory: (movie: Movie) => void;
   onDeleteHistory: (movieId: string) => void;
   onRenameMovie: (movie: Movie) => void;
@@ -662,7 +686,7 @@ function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, ope
   return (
     <>
       {open && <button className="fixed inset-0 z-40 bg-black/70 lg:hidden" onClick={onClose} aria-label="إغلاق المكتبة" />}
-      <aside className={`fixed inset-y-0 right-0 z-50 w-[min(88vw,330px)] border-l border-white/5 bg-[#0e0e11] p-4 transition-transform lg:sticky lg:top-[72px] lg:z-20 lg:h-[calc(100vh-72px)] lg:w-auto lg:translate-x-0 ${open ? "translate-x-0" : "translate-x-full"}`}>
+      <aside className={`fixed inset-y-0 right-0 z-50 w-[min(88vw,330px)] border-l border-white/5 bg-[#0e0e11] p-4 transition-transform lg:sticky lg:top-[72px] lg:z-20 lg:h-[calc(100vh-72px)] lg:w-auto lg:translate-x-0 ${desktopVisible ? "lg:block" : "lg:hidden"} ${open ? "translate-x-0" : "translate-x-full"}`}>
         <div className="mb-6 flex items-center justify-between pt-2">
           <div className="flex items-center gap-2 text-sm font-bold"><Library size={17} className="text-rose-400" /> مكتبتي</div>
           <button className="p-2 text-zinc-500 lg:hidden" onClick={onClose}><X size={18} /></button>
@@ -690,7 +714,7 @@ function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, ope
           )}
 
           {mode === "library" && movies.map((movie) => (
-            <MovieSidebarCard key={movie.id} movie={movie} active={activeId === movie.id} onSelect={() => onSelect(movie)} onSelectSource={(url) => onSelect({ ...movie, sources: [...movie.sources.filter((source) => source.url === url), ...movie.sources.filter((source) => source.url !== url)] })} onFilterCategory={onCategoryChange} categoryColors={categoryColors} onCategorize={(categories) => onCategorizeMovie(movie, categories)} onCategoryColorChange={onCategoryColorChange} manage={canManage ? { onRename: () => onRenameMovie(movie), onDelete: () => onDeleteMovie(movie) } : undefined} />
+            <MovieSidebarCard key={movie.id} movie={movie} active={activeId === movie.id} onSelect={() => onSelect(movie)} onSelectSource={(url) => onSelect({ ...movie, sources: [...movie.sources.filter((source) => source.url === url), ...movie.sources.filter((source) => source.url !== url)] })} onFilterCategory={onCategoryChange} categoryColors={categoryColors} onCategorize={(categories) => onCategorizeMovie(movie, categories)} onCategoryColorChange={onCategoryColorChange} onReorder={onReorder} manage={canManage ? { onRename: () => onRenameMovie(movie), onDelete: () => onDeleteMovie(movie) } : undefined} />
           ))}
 
           {mode === "history" && history.map((entry) => {
@@ -706,6 +730,7 @@ function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, ope
                 categoryColors={categoryColors}
                 onCategorize={(categories) => onCategorizeMovie(entry.movie, categories)}
                 onCategoryColorChange={onCategoryColorChange}
+                onReorder={onReorder}
                 meta={`${entry.details.currentQuality || entry.details.type}${percent ? ` • ${percent}%` : ""}`}
                 progress={percent}
                 manage={canManage ? { onRename: () => onRenameHistory(entry.movie), onDelete: () => onDeleteHistory(entry.movie.id) } : undefined}
@@ -718,7 +743,7 @@ function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, ope
   );
 }
 
-function MovieSidebarCard({ movie, active, onSelect, onSelectSource, onFilterCategory, categoryColors, onCategorize, onCategoryColorChange, meta, progress, manage }: {
+function MovieSidebarCard({ movie, active, onSelect, onSelectSource, onFilterCategory, categoryColors, onCategorize, onCategoryColorChange, onReorder, meta, progress, manage }: {
   movie: Movie;
   active: boolean;
   onSelect: () => void;
@@ -727,6 +752,7 @@ function MovieSidebarCard({ movie, active, onSelect, onSelectSource, onFilterCat
   categoryColors: CategoryColors;
   onCategorize: (categories: MovieCategory[]) => void;
   onCategoryColorChange: (category: MovieCategory, color: string) => void;
+  onReorder: (draggedId: string, targetId: string) => void;
   meta?: string;
   progress?: number;
   manage?: { onRename: () => void; onDelete: () => void };
@@ -746,6 +772,10 @@ function MovieSidebarCard({ movie, active, onSelect, onSelectSource, onFilterCat
   return (
     <div
       className={`group flex w-full items-center gap-2 rounded-xl p-2 text-right transition ${active ? "navy-glass" : "hover:bg-white/5"}`}
+      draggable={Boolean(manage)}
+      onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/movie-id", movie.id); }}
+      onDragOver={(event) => { if (manage) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; } }}
+      onDrop={(event) => { event.preventDefault(); const draggedId = event.dataTransfer.getData("text/movie-id"); if (draggedId) onReorder(draggedId, movie.id); }}
       onContextMenu={(event) => { event.preventDefault(); setMenu({ x: Math.max(8, Math.min(event.clientX, window.innerWidth - 310)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - 520)) }); }}
     >
       <button onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-3 text-right">
@@ -761,9 +791,9 @@ function MovieSidebarCard({ movie, active, onSelect, onSelectSource, onFilterCat
         {!movie.categories?.length && <span className="mt-1 block text-[9px] text-zinc-600">غير مصنفة</span>}
       </span>
       </button>
-      <button onClick={(event) => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); setMenu({ x: Math.max(8, Math.min(rect.left - 260, window.innerWidth - 310)), y: Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - 520)) }); }} className="rounded-md p-1.5 text-zinc-600 hover:bg-white/10 hover:text-white" title="تخصيص الفيلم"><SlidersHorizontal size={12} /></button>
+      <button onClick={(event) => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); setMenu({ x: Math.max(8, Math.min(rect.left - 260, window.innerWidth - 310)), y: Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - 520)) }); }} className="rounded-md p-1.5 text-zinc-600 hover:bg-white/10 hover:text-white" title="تخصيص الفيلم"><Image src="/sidebar-off-1.png" alt="" width={16} height={16} /></button>
       {manage && <span className="flex shrink-0 flex-col gap-1"><button onClick={manage.onRename} className="rounded-md p-1.5 text-zinc-500 hover:bg-white/10 hover:text-white" title="تعديل الاسم"><Pencil size={12} /></button><button onClick={manage.onDelete} className="rounded-md p-1.5 text-zinc-600 hover:bg-red-500/10 hover:text-red-200" title="حذف هذا الفيلم فقط"><Trash2 size={12} /></button></span>}
-      {menu && <div className="fixed z-[100] w-[300px] overflow-hidden rounded-2xl border border-white/10 bg-[#111722]/98 text-right shadow-2xl backdrop-blur-xl" style={{ left: menu.x, top: menu.y }} dir="rtl" onClick={(event) => event.stopPropagation()}>
+      {menu && createPortal(<div className="fixed z-[100] w-[300px] overflow-hidden rounded-2xl border border-white/10 bg-[#111722]/98 text-right shadow-2xl backdrop-blur-xl" style={{ left: menu.x, top: menu.y }} dir="rtl" onClick={(event) => event.stopPropagation()}>
         <div className="border-b border-white/8 px-4 py-3"><div className="truncate text-xs font-black">{movie.title}</div><div className="mt-1 text-[9px] text-zinc-500">مركز تخصيص الفيلم</div></div>
         <div className="max-h-[430px] overflow-y-auto p-2">
           <div className="px-2 py-1 text-[10px] font-bold text-zinc-500">الجودة والمصدر</div>
@@ -779,7 +809,7 @@ function MovieSidebarCard({ movie, active, onSelect, onSelectSource, onFilterCat
           })}
           {manage && <div className="mt-2 grid grid-cols-2 gap-2 border-t border-white/8 pt-2"><button onClick={() => { manage.onRename(); setMenu(null); }} className="rounded-lg bg-white/7 px-2 py-2 text-[10px]">تعديل الاسم</button><button onClick={() => { manage.onDelete(); setMenu(null); }} className="rounded-lg bg-red-500/10 px-2 py-2 text-[10px] text-red-200">حذف الفيلم</button></div>}
         </div>
-      </div>}
+      </div>, document.body)}
     </div>
   );
 }
