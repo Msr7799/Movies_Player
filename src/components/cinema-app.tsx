@@ -263,6 +263,32 @@ export function CinemaApp() {
     setHistory((current) => persistHistory(current.filter((entry) => entry.movie.id !== movieId)));
   }
 
+  async function renameLibraryMovie(movie: Movie) {
+    if (!adminAuthenticated) return;
+    const title = window.prompt("الاسم الجديد للفيلم:", movie.title)?.trim();
+    if (!title || title === movie.title) return;
+    const response = await fetch(`/api/admin/movies/${encodeURIComponent(movie.id)}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, titleOrigin: "user" }),
+    });
+    if (!response.ok) return;
+    const rename = (value: Movie) => value.id === movie.id ? { ...value, title, titleOrigin: "user" as const } : value;
+    setMovies((current) => current.map(rename));
+    setActiveMovie((current) => rename(current));
+    setHistory((current) => persistHistory(current.map((entry) => entry.movie.id === movie.id ? { ...entry, movie: rename(entry.movie) } : entry)));
+  }
+
+  async function deleteLibraryMovie(movie: Movie) {
+    if (!adminAuthenticated || !window.confirm(`حذف «${movie.title}» من المكتبة العامة والهيستوري؟`)) return;
+    const response = await fetch(`/api/admin/movies/${encodeURIComponent(movie.id)}`, { method: "DELETE" });
+    if (!response.ok) return;
+    setMovies((current) => current.filter((item) => item.id !== movie.id));
+    setHistory((current) => persistHistory(current.filter((entry) => entry.movie.id !== movie.id)));
+    setActiveMovie((current) => {
+      if (current.id !== movie.id) return current;
+      return movies.find((item) => item.id !== movie.id) ?? VEER_ZAARA_MOVIE;
+    });
+  }
+
   function openLocalFiles(files: FileList | null) {
     if (!files?.length) return;
     const all = Array.from(files);
@@ -459,6 +485,8 @@ export function CinemaApp() {
           onCategoryChange={setSelectedCategory}
           onRenameHistory={(movie) => void renameHistoryMovie(movie)}
           onDeleteHistory={(movieId) => void deleteHistoryMovie(movieId)}
+          onRenameMovie={(movie) => void renameLibraryMovie(movie)}
+          onDeleteMovie={(movie) => void deleteLibraryMovie(movie)}
           onSelect={selectMovie}
         />
 
@@ -570,7 +598,7 @@ export function CinemaApp() {
   );
 }
 
-function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, open, onClose, onSelect, canManage, query, onQueryChange, selectedCategory, onCategoryChange, onRenameHistory, onDeleteHistory }: {
+function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, open, onClose, onSelect, canManage, query, onQueryChange, selectedCategory, onCategoryChange, onRenameHistory, onDeleteHistory, onRenameMovie, onDeleteMovie }: {
   movies: Movie[];
   history: HistoryEntry[];
   mode: SidebarMode;
@@ -587,6 +615,8 @@ function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, ope
   onCategoryChange: (value: MovieCategory | "all") => void;
   onRenameHistory: (movie: Movie) => void;
   onDeleteHistory: (movieId: string) => void;
+  onRenameMovie: (movie: Movie) => void;
+  onDeleteMovie: (movie: Movie) => void;
 }) {
   const count = mode === "library" ? movies.length : history.length;
 
@@ -620,7 +650,7 @@ function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, ope
           )}
 
           {mode === "library" && movies.map((movie) => (
-            <MovieSidebarCard key={movie.id} movie={movie} active={activeId === movie.id} onSelect={() => onSelect(movie)} />
+            <MovieSidebarCard key={movie.id} movie={movie} active={activeId === movie.id} onSelect={() => onSelect(movie)} manage={canManage ? { onRename: () => onRenameMovie(movie), onDelete: () => onDeleteMovie(movie) } : undefined} />
           ))}
 
           {mode === "history" && history.map((entry) => {
