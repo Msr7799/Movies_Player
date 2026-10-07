@@ -51,6 +51,7 @@ MongoDB Atlas stores the public movie catalog, global recently-watched list, and
 The owner dashboard supports per-movie recent-history rename/delete, search and multi-select,
 Gemini category classification, and JSON catalog import. Imported entries may use `poster`,
 `thumbnail`, or `image`, plus a direct `url`, `sources`, or HLS Collector-style `streams`.
+Collector exports using `thumbnailURL` and `qualities` are supported as well.
 Only import media you are authorized to publish.
 
 ```json

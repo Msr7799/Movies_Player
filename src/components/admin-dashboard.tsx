@@ -227,12 +227,23 @@ export function AdminDashboard() {
     setBusy(true); setImportMessage(""); setError("");
     try {
       if (!rightsConfirmed) throw new Error("أكد حقوق نشر المصادر قبل الاستيراد.");
-      const catalog = JSON.parse(importJson) as unknown;
+      const normalizedJson = importJson.replace(/^\uFEFF/, "").trim();
+      if (!normalizedJson) throw new Error("ملف JSON فارغ.");
+      let catalog: unknown;
+      try { catalog = JSON.parse(normalizedJson) as unknown; }
+      catch (parseError) {
+        const detail = parseError instanceof Error ? parseError.message : "صيغة غير صالحة";
+        throw new Error(`JSON غير مكتمل أو غير صالح: ${detail}`);
+      }
       const response = await fetch("/api/admin/movies/import", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ catalog, rightsConfirmed: true }),
       });
-      const payload = await response.json() as { error?: string; imported?: number; ignored?: number; ids?: string[] };
+      const responseText = await response.text();
+      if (!responseText) throw new Error(`الخادم أعاد استجابة فارغة (HTTP ${response.status}).`);
+      let payload: { error?: string; imported?: number; ignored?: number; ids?: string[] };
+      try { payload = JSON.parse(responseText) as typeof payload; }
+      catch { throw new Error(`استجابة الخادم ليست JSON صالحة (HTTP ${response.status}).`); }
       if (!response.ok) throw new Error(payload.error || "تعذر الاستيراد.");
       const ids = payload.ids ?? [];
       const classified = autoClassify && ids.length ? await classifyIds(ids) : 0;

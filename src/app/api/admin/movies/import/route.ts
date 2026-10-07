@@ -19,26 +19,36 @@ function normalizedRecord(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
   const item = value as Record<string, unknown>;
   const streams = Array.isArray(item.streams) ? item.streams : [];
+  const qualities = Array.isArray(item.qualities) ? item.qualities : [];
   const suppliedSources = Array.isArray(item.sources) ? item.sources.filter((source) => {
     if (!source || typeof source !== "object") return false;
     const url = String((source as Record<string, unknown>).url ?? "");
     return !/\.(?:gif|png|jpe?g|webp)(?:$|[?#])/i.test(url) && !/(?:^|\/)ping(?:\.|\/)/i.test(url);
   }) : [];
   const directUrl = typeof item.url === "string" ? [{ url: item.url, quality: item.quality ?? "HLS", kind: item.kind ?? "hls" }] : [];
-  const sources = [...suppliedSources, ...streams.flatMap((stream) => {
+  const collectorSources = [...streams, ...qualities].flatMap((stream) => {
     const source = stream && typeof stream === "object" ? stream as Record<string, unknown> : {};
     const url = typeof source.url === "string" ? source.url : "";
-    return /\.m3u8(?:$|[?#])/i.test(url) ? [{ url, quality: source.quality ?? "HLS", kind: "hls" }] : [];
-  }), ...directUrl];
+    return /\.m3u8(?:$|[?#])/i.test(url) ? [{ url, quality: source.label ?? source.quality ?? "HLS", kind: "hls" }] : [];
+  });
+  const sourceMap = new Map<string, unknown>();
+  for (const source of [...suppliedSources, ...collectorSources, ...directUrl]) {
+    if (!source || typeof source !== "object") continue;
+    const url = String((source as Record<string, unknown>).url ?? "");
+    if (!url || sourceMap.has(url)) continue;
+    sourceMap.set(url, source);
+  }
+  const sources = [...sourceMap.values()];
   const firstUrl = sources.find((source) => source && typeof source === "object" && typeof (source as Record<string, unknown>).url === "string");
   const mediaUrl = firstUrl && typeof firstUrl === "object" ? String((firstUrl as Record<string, unknown>).url ?? "") : "";
   const title = item.title ?? item.name;
-  const id = typeof item.id === "string" ? item.id : `import-${createHash("sha256").update(`${String(title ?? "")}|${mediaUrl}`).digest("hex").slice(0, 20)}`;
+  const suppliedId = typeof item.id === "string" && /^[a-zA-Z0-9_-]{1,120}$/.test(item.id) ? item.id : "";
+  const id = suppliedId || `import-${createHash("sha256").update(`${String(item.id ?? title ?? "")}|${mediaUrl}`).digest("hex").slice(0, 20)}`;
   return {
     ...item,
     id,
     title,
-    poster: item.poster ?? item.thumbnail ?? item.image,
+    poster: item.poster ?? item.thumbnailURL ?? item.thumbnail ?? item.image,
     sources,
     subtitles: Array.isArray(item.subtitles) ? item.subtitles : [],
     titleOrigin: "catalog",
