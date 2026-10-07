@@ -44,6 +44,25 @@ These values are read only by server-side routes. `/api/discover` uses `GEMINI_A
 
 Direct media files and supported YouTube, Vimeo, or Internet Archive results can play inside Cinema Player. Other services open their official page because subscription, region, sign-in, DRM, and embedding rules are controlled by each provider.
 
+## Shared library and owner dashboard
+
+MongoDB Atlas stores the public movie catalog, global recently-watched list, and anonymous aggregate activity. Every visitor can search, play, and view the public library/history. Only the site owner can publish, rename, edit, or delete catalog entries and clear global history.
+
+Add these server-only variables:
+
+```bash
+MONGODB_URI=your_atlas_connection_string
+MONGODB_DATABASE=any_movie
+MONGODB_DNS_SERVERS=1.1.1.1,8.8.8.8 # only if local SRV DNS is blocked
+ADMIN_USERNAME=your_private_admin_name
+ADMIN_PASSWORD=use_at_least_12_characters
+ADMIN_SESSION_SECRET=optional_independent_random_secret
+```
+
+Open `/admin` to sign in. The dashboard includes public-library CRUD, global-history management, movie/play/visitor/search totals, top movies, and recent viewing activity. Admin sessions use a signed `HttpOnly`, `SameSite=Strict` cookie. Database credentials are never accepted by the login form or sent to the browser.
+
+Remote HLS, direct-video, and embed URLs can be published globally. A local file selected with the browser file picker remains local because its temporary `blob:` URL cannot be opened by other visitors; upload large video files to authorized object/CDN storage first, then publish their URL.
+
 ## Playback Sources
 
 ### Open a movie from your device

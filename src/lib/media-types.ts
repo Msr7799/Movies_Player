@@ -40,6 +40,10 @@ export type PlaybackHistorySnapshot = {
   details: MediaDetails;
 };
 
+export type PlaybackHistoryEntry = PlaybackHistorySnapshot & {
+  movie: Movie;
+};
+
 export type DiscoveryResult = {
   id: string;
   title: string;

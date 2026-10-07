@@ -3,6 +3,7 @@
 import { Captions, Clapperboard, ExternalLink, Languages, LoaderCircle, Play, Search, ShieldCheck, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { DiscoveryResponse, DiscoveryResult, SearchProvider } from "@/lib/media-types";
+import { trackAnalytics } from "@/lib/browser-analytics";
 import {
   MOVIE_LANGUAGE_OPTIONS, SUBTITLE_LANGUAGE_OPTIONS,
   type MovieLanguageValue, type SubtitleLanguageValue,
@@ -101,6 +102,7 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
       const payload = await response.json() as DiscoveryResponse & { error?: string };
       if (!response.ok) throw new Error(payload.error || "تعذر إكمال البحث.");
       setData(payload);
+      trackAnalytics("search", { provider: payload.searchProvider, resultCount: payload.results.length });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "تعذر إكمال البحث.");
     } finally {
@@ -110,14 +112,42 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
 
   return (
     <section className="glass mb-7 overflow-hidden rounded-3xl p-4 sm:p-6" aria-labelledby="ai-search-title">
-      <div className="mb-4 flex items-start gap-3">
+      <div className="mb-4 flex flex-wrap items-start gap-3">
         <span className="navy-glass grid size-11 shrink-0 place-items-center rounded-2xl text-rose-200">
           <Sparkles size={21} />
         </span>
-        <div>
+        <div className="min-w-0 flex-1">
           <h2 id="ai-search-title" className="text-base font-black sm:text-lg">البحث الذكي عن الأفلام</h2>
           <p className="mt-1 text-xs leading-6 text-zinc-400">اكتب الاسم بأي لغة. يستخدم Gemini مزود البحث الذي تختاره للعثور على الفيلم الكامل في مصادر قانونية موثوقة، مع استبعاد المقاطع افتراضيًا.</p>
         </div>
+        <fieldset className="w-full rounded-2xl border border-rose-400/25 bg-black/30 p-1 sm:w-auto" disabled={loading}>
+          <legend className="sr-only">اختيار خدمة البحث</legend>
+          <div className="grid grid-cols-2 gap-1" role="radiogroup" aria-label="اختيار خدمة البحث">
+            {(["tavily", "serper"] as const).map((provider) => {
+              const selected = searchProvider === provider;
+              return (
+                <label
+                  key={provider}
+                  className={`cursor-pointer rounded-xl px-5 py-2.5 text-center text-xs font-black transition ${selected ? "bg-rose-500 text-white shadow-lg shadow-rose-950/30" : "text-zinc-400 hover:bg-white/7 hover:text-white"}`}
+                >
+                  <input
+                    type="radio"
+                    name="search-provider"
+                    value={provider}
+                    checked={selected}
+                    onChange={() => {
+                      setSearchProvider(provider);
+                      setData(null);
+                      setError("");
+                    }}
+                    className="sr-only"
+                  />
+                  {provider === "tavily" ? "Tavily" : "Serper"}
+                </label>
+              );
+            })}
+          </div>
+        </fieldset>
       </div>
 
       <form onSubmit={searchMovies} className="space-y-3">
@@ -197,31 +227,6 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
               {SUBTITLE_LANGUAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`الترجمة: ${option.label}`}</option>)}
             </select>
             <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600">⌄</span>
-          </label>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-4 py-3">
-          <span>
-            <span className="block text-xs font-bold text-zinc-100">مزود البحث</span>
-            <span className="mt-1 block text-[10px] text-zinc-500">بدّل بين Tavily وSerper قبل بدء البحث.</span>
-          </span>
-          <label className="flex cursor-pointer items-center gap-2" aria-label="مزود البحث">
-            <span className={`text-xs font-bold transition ${searchProvider === "tavily" ? "text-rose-200" : "text-zinc-500"}`}>Tavily</span>
-            <input
-              type="checkbox"
-              checked={searchProvider === "serper"}
-              disabled={loading}
-              onChange={(event) => {
-                setSearchProvider(event.target.checked ? "serper" : "tavily");
-                setData(null);
-                setError("");
-              }}
-              className="peer sr-only"
-            />
-            <span className="relative h-7 w-12 shrink-0 rounded-full border border-white/15 bg-[#263d5c] transition peer-checked:bg-rose-500/70 peer-focus-visible:ring-2 peer-focus-visible:ring-rose-300 peer-disabled:cursor-not-allowed peer-disabled:opacity-50">
-              <span className={`absolute right-1 top-1 size-5 rounded-full bg-white shadow transition-transform ${searchProvider === "serper" ? "-translate-x-5" : ""}`} />
-            </span>
-            <span className={`text-xs font-bold transition ${searchProvider === "serper" ? "text-rose-200" : "text-zinc-500"}`}>Serper</span>
           </label>
         </div>
 

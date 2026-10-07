@@ -3,24 +3,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import {
-  Clapperboard, FolderOpen, History, Library, Link2, Menu, Play, Search,
+  BarChart3, Clapperboard, FolderOpen, History, Library, Link2, Menu, Play, Search,
   Sparkles, Trash2, X,
 } from "lucide-react";
-import type { DiscoveryResult, MediaDetails, Movie, PlaybackHistorySnapshot, SubtitleTrack } from "@/lib/media-types";
+import type { DiscoveryResult, Movie, PlaybackHistoryEntry, PlaybackHistorySnapshot, SubtitleTrack } from "@/lib/media-types";
+import { trackAnalytics, visitorId } from "@/lib/browser-analytics";
 import { MovieDiscovery } from "./movie-discovery";
 import { VideoPlayer } from "./video-player";
 
 type LibraryResponse = { movies: Movie[] };
 type SidebarMode = "library" | "history";
-type HistoryEntry = {
-  movie: Movie;
-  progress: number;
-  duration: number;
-  watchedAt: number;
-  details: MediaDetails;
-};
+type HistoryEntry = PlaybackHistoryEntry;
 
 const HISTORY_KEY = "cinema-playback-history-v2";
+const MAX_HISTORY_ENTRIES = 30;
 
 const VEER_ZAARA_MOVIE: Movie = {
   id: "veer-zaara-2004",
@@ -49,6 +45,20 @@ function readHistory(): HistoryEntry[] {
   }
 }
 
+function persistHistory(entries: HistoryEntry[]) {
+  const limited = entries.slice(0, MAX_HISTORY_ENTRIES);
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(limited));
+    return limited;
+  } catch {
+    const compact = limited.map((entry, index) => index < 12 || !entry.movie.poster?.startsWith("data:")
+      ? entry
+      : { ...entry, movie: { ...entry.movie, poster: undefined } });
+    try { localStorage.setItem(HISTORY_KEY, JSON.stringify(compact)); } catch { /* Storage may be unavailable. */ }
+    return compact;
+  }
+}
+
 export function CinemaApp() {
   const [movies, setMovies] = useState<Movie[]>([VEER_ZAARA_MOVIE]);
   const [activeMovie, setActiveMovie] = useState<Movie>(VEER_ZAARA_MOVIE);
@@ -64,25 +74,53 @@ export function CinemaApp() {
   const [urlError, setUrlError] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
   const objectUrls = useRef<string[]>([]);
+  const remoteSyncTimes = useRef(new Map<string, number>());
+  const [adminAuthenticated, setAdminAuthenticated] = useState(false);
 
   const loadLibrary = useCallback(async () => {
     try {
-      const response = await fetch("/api/library", { cache: "no-store" });
-      const data = (await response.json()) as LibraryResponse;
+      const [localResult, catalogResult, historyResult] = await Promise.allSettled([
+        fetch("/api/library", { cache: "no-store" }).then((response) => response.json() as Promise<LibraryResponse>),
+        fetch("/api/catalog", { cache: "no-store" }).then((response) => response.json() as Promise<LibraryResponse>),
+        fetch("/api/history", { cache: "no-store" }).then((response) => response.json() as Promise<{ history?: HistoryEntry[] }>),
+      ]);
+      const localMovies = localResult.status === "fulfilled" ? localResult.value.movies ?? [] : [];
+      const publicMovies = catalogResult.status === "fulfilled" ? catalogResult.value.movies ?? [] : [];
+      const publicHistory = historyResult.status === "fulfilled" ? historyResult.value.history ?? [] : [];
+      const browserHistory = readHistory();
       setMovies((current) => {
-        const merged = [VEER_ZAARA_MOVIE, ...data.movies, ...current];
+        const merged = [VEER_ZAARA_MOVIE, ...publicMovies, ...localMovies, ...publicHistory.map((entry) => entry.movie), ...current];
         const unique = new Map<string, Movie>();
         for (const movie of merged) if (!unique.has(movie.id)) unique.set(movie.id, movie);
         return [...unique.values()];
       });
+      setHistory((current) => {
+        const merged = [...publicHistory, ...browserHistory, ...current].sort((a, b) => b.watchedAt - a.watchedAt);
+        const unique = new Map<string, HistoryEntry>();
+        for (const entry of merged) if (!unique.has(entry.movie.id)) unique.set(entry.movie.id, entry);
+        return [...unique.values()].slice(0, MAX_HISTORY_ENTRIES);
+      });
+      const id = visitorId();
+      void Promise.allSettled(browserHistory
+        .filter((entry) => isRemotePersistable(entry.movie))
+        .slice(0, MAX_HISTORY_ENTRIES)
+        .map((entry) => fetch("/api/history", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ visitorId: id, movie: entry.movie, snapshot: entry }),
+        })));
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    setHistory(readHistory());
     void loadLibrary();
+    void fetch("/api/admin/session", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((session: { authenticated?: boolean }) => setAdminAuthenticated(session.authenticated === true))
+      .catch(() => undefined);
+    trackAnalytics("visit");
   }, [loadLibrary]);
 
   useEffect(() => () => objectUrls.current.forEach(URL.revokeObjectURL), []);
@@ -114,16 +152,57 @@ export function CinemaApp() {
     if (!isRemotePersistable(movie)) return;
 
     setHistory((current) => {
-      const nextEntry: HistoryEntry = { movie, ...snapshot };
+      const existing = current.find((item) => item.movie.id === movie.id);
+      const movieWithPoster = movie.poster || !existing?.movie.poster
+        ? movie
+        : { ...movie, poster: existing.movie.poster };
+      const nextEntry: HistoryEntry = { movie: movieWithPoster, ...snapshot };
       const next = [nextEntry, ...current.filter((item) => item.movie.id !== movie.id)]
         .sort((a, b) => b.watchedAt - a.watchedAt)
-        .slice(0, 60);
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
-      return next;
+        .slice(0, MAX_HISTORY_ENTRIES);
+      return persistHistory(next);
+    });
+    const now = Date.now();
+    const lastSync = remoteSyncTimes.current.get(movie.id) ?? 0;
+    if (now - lastSync >= 15_000 || snapshot.progress === 0 || snapshot.progress >= snapshot.duration - 2) {
+      remoteSyncTimes.current.set(movie.id, now);
+      void fetch("/api/history", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visitorId: visitorId(), movie, snapshot }),
+        keepalive: true,
+      }).catch(() => undefined);
+    }
+  }, []);
+
+  const updateMoviePoster = useCallback((movieId: string, poster: string) => {
+    const applyPoster = (movie: Movie) => movie.id === movieId ? { ...movie, poster } : movie;
+    setMovies((current) => current.map(applyPoster));
+    setActiveMovie((current) => applyPoster(current));
+    setHistory((current) => persistHistory(current.map((entry) => entry.movie.id === movieId
+      ? { ...entry, movie: applyPoster(entry.movie) }
+      : entry)));
+    if (adminAuthenticated) {
+      void fetch(`/api/admin/movies/${encodeURIComponent(movieId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ poster }),
+      }).catch(() => undefined);
+    }
+  }, [adminAuthenticated]);
+
+  const selectMovie = useCallback((movie: Movie) => {
+    setActiveMovie(movie);
+    setSidebarOpen(false);
+    window.requestAnimationFrame(() => {
+      document.getElementById("player-stage")?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   }, []);
 
-  function clearHistory() {
+  async function clearHistory() {
+    if (!adminAuthenticated || !window.confirm("مسح سجل المشاهدة العام لكل الزوار؟")) return;
+    const response = await fetch("/api/admin/history", { method: "DELETE" });
+    if (!response.ok) return;
     setHistory([]);
     localStorage.removeItem(HISTORY_KEY);
   }
@@ -204,6 +283,14 @@ export function CinemaApp() {
     setUrlDialogOpen(false);
     setSidebarMode("library");
     setSidebarOpen(false);
+    trackAnalytics("play", { movieId: movie.id });
+    if (adminAuthenticated) {
+      void fetch("/api/admin/movies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(movie),
+      }).catch(() => undefined);
+    }
   }
 
   function playDiscoveredResult(result: DiscoveryResult) {
@@ -216,6 +303,14 @@ export function CinemaApp() {
     };
     setMovies((current) => [movie, ...current]);
     setActiveMovie(movie);
+    trackAnalytics("play", { movieId: movie.id });
+    if (adminAuthenticated) {
+      void fetch("/api/admin/movies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(movie),
+      }).catch(() => undefined);
+    }
     window.setTimeout(() => document.getElementById("player-stage")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   }
 
@@ -271,6 +366,14 @@ export function CinemaApp() {
             <span className="hidden xl:inline">مطور الموقع <strong className="text-rose-400">MSR</strong></span>
             <span className="hidden sm:inline xl:hidden">MSR</span>
           </a>
+          <a
+            href="/admin"
+            className={`hidden shrink-0 items-center gap-2 rounded-xl border px-3 py-2.5 text-xs transition sm:flex ${adminAuthenticated ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-200" : "border-white/10 bg-white/5 text-zinc-400 hover:text-white"}`}
+            aria-label="لوحة الإدارة"
+          >
+            <BarChart3 size={16} />
+            <span className="hidden xl:inline">{adminAuthenticated ? "الإدارة مفعّلة" : "الإدارة"}</span>
+          </a>
           <input
             ref={fileInput}
             type="file"
@@ -292,8 +395,9 @@ export function CinemaApp() {
           loading={loading}
           open={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
-          onClearHistory={clearHistory}
-          onSelect={(movie) => { setActiveMovie(movie); setSidebarOpen(false); }}
+          canManage={adminAuthenticated}
+          onClearHistory={() => void clearHistory()}
+          onSelect={selectMovie}
         />
 
         <section className="min-w-0 px-2.5 py-4 sm:px-7 sm:py-8 lg:px-10">
@@ -320,6 +424,7 @@ export function CinemaApp() {
               movie={activeMovie}
               onOpenFiles={() => fileInput.current?.click()}
               onHistoryUpdate={(snapshot) => updateHistory(activeMovie, snapshot)}
+              onPosterGenerated={(poster) => updateMoviePoster(activeMovie.id, poster)}
             />
 
             <div className="mt-6 grid gap-4 md:grid-cols-3">
@@ -343,7 +448,7 @@ export function CinemaApp() {
               <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-rose-500/15 text-rose-400"><Link2 size={22} /></span>
               <div>
                 <h2 className="text-lg font-black">تشغيل فيلم من رابط</h2>
-                <p className="mt-1 text-xs leading-6 text-zinc-500">يدعم HLS بصيغة m3u8 وMP4/WebM وروابط مشغّل VK. يمكنك أيضًا إضافة صورة مصغرة تحفظ مع السجل.</p>
+                <p className="mt-1 text-xs leading-6 text-zinc-500">يدعم HLS بصيغة m3u8 وMP4/WebM وروابط مشغّل VK. يلتقط صورة مصغرة تلقائيًا أثناء التشغيل، ويمكنك وضع صورة مخصصة بدلًا منها.</p>
               </div>
               <button type="button" onClick={() => setUrlDialogOpen(false)} className="mr-auto rounded-xl p-2 text-zinc-500 hover:bg-white/10 hover:text-white" aria-label="إغلاق"><X size={19} /></button>
             </div>
@@ -371,7 +476,7 @@ export function CinemaApp() {
               />
             </label>
             <label className="block">
-              <span className="mb-2 block text-xs font-bold text-zinc-300">رابط الصورة المصغرة <span className="font-normal text-zinc-600">(اختياري)</span></span>
+              <span className="mb-2 block text-xs font-bold text-zinc-300">رابط صورة مخصصة <span className="font-normal text-zinc-600">(اختياري — وإلا تُلتقط تلقائيًا)</span></span>
               <input
                 type="url"
                 value={urlPoster}
@@ -400,7 +505,7 @@ export function CinemaApp() {
   );
 }
 
-function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, open, onClose, onSelect, onClearHistory }: {
+function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, open, onClose, onSelect, canManage, onClearHistory }: {
   movies: Movie[];
   history: HistoryEntry[];
   mode: SidebarMode;
@@ -410,6 +515,7 @@ function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, ope
   open: boolean;
   onClose: () => void;
   onSelect: (movie: Movie) => void;
+  canManage: boolean;
   onClearHistory: () => void;
 }) {
   const count = mode === "library" ? movies.length : history.length;
@@ -430,7 +536,7 @@ function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, ope
           <span>{mode === "history" ? "سجل المشاهدة" : "قائمة الأفلام"}</span>
           <span className="flex items-center gap-2">
             {count}
-            {mode === "history" && history.length > 0 && (
+            {mode === "history" && history.length > 0 && canManage && (
               <button onClick={onClearHistory} className="rounded p-1 text-zinc-600 hover:bg-white/10 hover:text-red-300" title="مسح السجل"><Trash2 size={13} /></button>
             )}
           </span>

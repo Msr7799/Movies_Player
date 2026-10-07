@@ -34,6 +34,7 @@ const DEFAULT_STYLE: SubtitleStyle = {
 };
 
 const speeds = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+const THUMBNAIL_CAPTURE_TIMES = [2, 15, 40, 90];
 
 function formatTime(seconds: number) {
   if (!Number.isFinite(seconds)) return "00:00";
@@ -79,10 +80,11 @@ function sourceHost(url: string) {
   try { return new URL(url).host; } catch { return "—"; }
 }
 
-export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate }: {
+export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate, onPosterGenerated }: {
   movie: Movie;
   onOpenFiles: () => void;
   onHistoryUpdate?: (snapshot: PlaybackHistorySnapshot) => void;
+  onPosterGenerated?: (poster: string) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -90,6 +92,10 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate }: {
   const qualityState = useRef({ time: 0, playing: false });
   const hlsRef = useRef<HlsInstanceLike | null>(null);
   const historySecondRef = useRef(-1);
+  const thumbnailCheckpointsRef = useRef(new Set<number>());
+  const hasCustomPosterRef = useRef(Boolean(movie.poster && !movie.poster.startsWith("data:")));
+  const hlsNetworkRetriesRef = useRef(0);
+  const hlsRecoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [sourceUrl, setSourceUrl] = useState(() => movie.sources[0]?.url ?? "");
   const [embedStarted, setEmbedStarted] = useState(false);
@@ -167,6 +173,55 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate }: {
     });
   }, [currentTime, duration, mediaDetails, onHistoryUpdate, sourceUrl]);
 
+  const captureVideoPoster = useCallback((video: HTMLVideoElement) => {
+    if (!onPosterGenerated || hasCustomPosterRef.current || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !video.videoWidth || !video.videoHeight) return;
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = 320;
+      canvas.height = 180;
+      const context = canvas.getContext("2d", { alpha: false, willReadFrequently: true });
+      if (!context) return;
+
+      const sourceRatio = video.videoWidth / video.videoHeight;
+      const targetRatio = canvas.width / canvas.height;
+      let sx = 0;
+      let sy = 0;
+      let sw = video.videoWidth;
+      let sh = video.videoHeight;
+      if (sourceRatio > targetRatio) {
+        sw = video.videoHeight * targetRatio;
+        sx = (video.videoWidth - sw) / 2;
+      } else if (sourceRatio < targetRatio) {
+        sh = video.videoWidth / targetRatio;
+        sy = (video.videoHeight - sh) / 2;
+      }
+      context.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      let samples = 0;
+      let sum = 0;
+      let sumSquares = 0;
+      for (let index = 0; index < pixels.length; index += 64) {
+        const lightness = pixels[index] * .2126 + pixels[index + 1] * .7152 + pixels[index + 2] * .0722;
+        sum += lightness;
+        sumSquares += lightness * lightness;
+        samples += 1;
+      }
+      const mean = sum / samples;
+      const variance = (sumSquares / samples) - (mean * mean);
+      if (mean < 10 || mean > 246 || variance < 45) return;
+
+      let poster = canvas.toDataURL("image/webp", .7);
+      if (!poster.startsWith("data:image/webp") || poster.length > 110_000) {
+        poster = canvas.toDataURL("image/jpeg", .62);
+      }
+      if (poster.length > 140_000) return;
+      onPosterGenerated(poster);
+    } catch {
+      // Cross-origin streams may play but still forbid canvas frame extraction.
+    }
+  }, [onPosterGenerated]);
+
   useEffect(() => {
     localStorage.setItem("cinema-subtitle-style", JSON.stringify(subtitleStyle));
   }, [subtitleStyle]);
@@ -194,6 +249,8 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate }: {
     setHlsError("");
     setHlsEngine("");
     setVideoResolution("");
+    hlsNetworkRetriesRef.current = 0;
+    if (hlsRecoveryTimerRef.current) clearTimeout(hlsRecoveryTimerRef.current);
 
     video.pause();
     video.removeAttribute("src");
@@ -221,7 +278,17 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate }: {
           if (cancelled) return;
           const levels = normalizeHlsLevels(hls.levels || []);
           setHlsLevels(levels);
-          setHlsAuto(true);
+          const savedLevel = localStorage.getItem(`cinema-hls-quality:${movie.id}`);
+          const savedIndex = savedLevel && savedLevel !== "auto" ? Number(savedLevel) : -1;
+          if (Number.isInteger(savedIndex) && savedIndex >= 0 && savedIndex < levels.length) {
+            hls.currentLevel = savedIndex;
+            setHlsLevel(savedIndex);
+            setHlsAuto(false);
+          } else {
+            hls.currentLevel = -1;
+            setHlsAuto(true);
+          }
+          hlsNetworkRetriesRef.current = 0;
           setHlsError("");
         });
 
@@ -235,10 +302,26 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate }: {
           const code = data.response?.code;
           const reason = data.reason || data.details || data.type || "خطأ غير معروف";
           if (data.fatal) {
-            setHlsError(`${code ? `HTTP ${code} • ` : ""}${reason}`);
-            if (Hls.ErrorTypes?.MEDIA_ERROR && data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-              try { hls.recoverMediaError(); } catch { /* noop */ }
+            if (Hls.ErrorTypes?.NETWORK_ERROR && data.type === Hls.ErrorTypes.NETWORK_ERROR && hlsNetworkRetriesRef.current < 3) {
+              hlsNetworkRetriesRef.current += 1;
+              const attempt = hlsNetworkRetriesRef.current;
+              setHlsError(`انقطع الاتصال بالبث • إعادة المحاولة ${attempt}/3`);
+              hlsRecoveryTimerRef.current = setTimeout(() => {
+                if (!cancelled && hlsRef.current === hls) {
+                  setHlsError("");
+                  hls.startLoad();
+                }
+              }, attempt * 1500);
+              return;
             }
+            if (Hls.ErrorTypes?.MEDIA_ERROR && data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+              try {
+                hls.recoverMediaError();
+                setHlsError("");
+                return;
+              } catch { /* Fall through to the visible fatal error. */ }
+            }
+            setHlsError(`${code ? `HTTP ${code} • ` : ""}${reason}`);
           }
         });
 
@@ -259,10 +342,11 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate }: {
 
     return () => {
       cancelled = true;
+      if (hlsRecoveryTimerRef.current) clearTimeout(hlsRecoveryTimerRef.current);
       hlsRef.current?.destroy();
       hlsRef.current = null;
     };
-  }, [activeSource?.kind, isHls, sourceUrl]);
+  }, [activeSource?.kind, isHls, movie.id, sourceUrl]);
 
   const showStatus = useCallback((text: string) => {
     setStatusText(text);
@@ -333,6 +417,36 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate }: {
     return () => window.removeEventListener("keydown", onKey);
   }, [movie.subtitles, skip, toggleFullscreen, toggleMute, togglePlay]);
 
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: movie.title,
+      artist: sourceHost(sourceUrl),
+      album: "Cinema Player",
+      artwork: movie.poster ? [{ src: movie.poster, sizes: "320x180" }] : [],
+    });
+    const handlers: Array<[MediaSessionAction, MediaSessionActionHandler]> = [
+      ["play", () => { if (videoRef.current) void videoRef.current.play(); }],
+      ["pause", () => videoRef.current?.pause()],
+      ["seekbackward", (details) => skip(-(details.seekOffset || 10))],
+      ["seekforward", (details) => skip(details.seekOffset || 10)],
+      ["seekto", (details) => {
+        const video = videoRef.current;
+        if (!video || details.seekTime === undefined) return;
+        if (details.fastSeek && "fastSeek" in video) video.fastSeek(details.seekTime);
+        else video.currentTime = details.seekTime;
+      }],
+    ];
+    for (const [action, handler] of handlers) {
+      try { navigator.mediaSession.setActionHandler(action, handler); } catch { /* Unsupported action. */ }
+    }
+    return () => {
+      for (const [action] of handlers) {
+        try { navigator.mediaSession.setActionHandler(action, null); } catch { /* Unsupported action. */ }
+      }
+    };
+  }, [movie.poster, movie.title, skip, sourceUrl]);
+
   function showControls() {
     setControlsVisible(true);
     if (hideTimer.current) clearTimeout(hideTimer.current);
@@ -352,11 +466,13 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate }: {
     if (index === null) {
       hls.currentLevel = -1;
       setHlsAuto(true);
+      localStorage.setItem(`cinema-hls-quality:${movie.id}`, "auto");
       showStatus("الجودة: تلقائي");
       return;
     }
     hls.currentLevel = index;
     setHlsAuto(false);
+    localStorage.setItem(`cinema-hls-quality:${movie.id}`, String(index));
     const level = hlsLevels.find((item) => item.index === index);
     showStatus(`الجودة: ${level?.label ?? index}`);
   }
@@ -379,7 +495,21 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate }: {
     const video = videoRef.current;
     if (!video) return;
     setCurrentTime(video.currentTime);
+    if ("mediaSession" in navigator && Number.isFinite(video.duration) && video.duration > 0) {
+      try {
+        navigator.mediaSession.setPositionState({
+          duration: video.duration,
+          playbackRate: video.playbackRate,
+          position: Math.min(video.currentTime, video.duration),
+        });
+      } catch { /* Position state is optional. */ }
+    }
     const second = Math.floor(video.currentTime);
+    const checkpoint = THUMBNAIL_CAPTURE_TIMES.find((time) => second >= time && !thumbnailCheckpointsRef.current.has(time));
+    if (checkpoint !== undefined) {
+      thumbnailCheckpointsRef.current.add(checkpoint);
+      captureVideoPoster(video);
+    }
     if (second % 5 === 0 && second !== historySecondRef.current) {
       historySecondRef.current = second;
       localStorage.setItem(`cinema-progress:${movie.id}`, String(video.currentTime));
@@ -474,12 +604,14 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate }: {
       <video
         ref={videoRef}
         poster={movie.poster}
+        crossOrigin={isHls ? "anonymous" : undefined}
         className="size-full transition-transform duration-300"
         style={{ objectFit: fit, transform: `scale(${zoom / 100})` }}
         playsInline
+        preload="metadata"
         onClick={togglePlay}
-        onPlay={() => { setIsPlaying(true); showControls(); emitHistory(); }}
-        onPause={() => { setIsPlaying(false); setControlsVisible(true); }}
+        onPlay={() => { setIsPlaying(true); if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing"; showControls(); emitHistory(); }}
+        onPause={() => { setIsPlaying(false); if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused"; setControlsVisible(true); }}
         onEnded={() => { setIsPlaying(false); emitHistory(duration, duration); }}
         onLoadedMetadata={onLoadedMetadata}
         onDurationChange={(event) => setDuration(event.currentTarget.duration || 0)}
