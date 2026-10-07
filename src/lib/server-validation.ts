@@ -24,6 +24,17 @@ function posterUrl(value: unknown) {
   return httpUrl(raw);
 }
 
+function parameters(value: unknown): Movie["parameters"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const entries: Array<[string, string | number | boolean]> = [];
+  for (const [key, item] of Object.entries(value as Record<string, unknown>).slice(0, 30)) {
+    const cleanKey = text(key, 60);
+    if (!cleanKey || (typeof item !== "string" && typeof item !== "number" && typeof item !== "boolean")) continue;
+    entries.push([cleanKey, typeof item === "string" ? item.slice(0, 500) : item]);
+  }
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
 export function sanitizeMovie(value: unknown, keepId = true): Movie {
   const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
   const sources: MediaSource[] = Array.isArray(input.sources) ? input.sources.slice(0, 10).flatMap((source): MediaSource[] => {
@@ -51,6 +62,8 @@ export function sanitizeMovie(value: unknown, keepId = true): Movie {
   return {
     id: keepId && suppliedId ? suppliedId : `movie-${randomUUID()}`,
     title,
+    description: text(input.description, 2_000) || undefined,
+    parameters: parameters(input.parameters),
     titleOrigin: input.titleOrigin === "user" || input.titleOrigin === "smart" || input.titleOrigin === "filename" || input.titleOrigin === "catalog"
       ? input.titleOrigin
       : "catalog",

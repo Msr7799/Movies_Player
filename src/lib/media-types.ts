@@ -12,6 +12,8 @@ export type SubtitleTrack = { label: string; language: string; url: string };
 export type Movie = {
   id: string;
   title: string;
+  description?: string;
+  parameters?: Record<string, string | number | boolean>;
   titleOrigin?: "user" | "smart" | "filename" | "catalog";
   poster?: string;
   categories?: MovieCategory[];

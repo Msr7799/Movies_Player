@@ -10,9 +10,10 @@ export async function GET() {
     const database = await ensureDatabaseIndexes();
     const documents = await database.collection<MovieDocument>("movies")
       .find({}, { projection: { _id: 0, createdAt: 0, updatedAt: 0 } })
-      .sort({ sortOrder: 1, updatedAt: -1 })
+      .sort({ updatedAt: -1 })
       .limit(200)
       .toArray();
+    documents.sort((left, right) => (left.sortOrder ?? Number.MAX_SAFE_INTEGER) - (right.sortOrder ?? Number.MAX_SAFE_INTEGER));
     return Response.json({ movies: documents });
   } catch {
     return Response.json({ error: "تعذر تحميل المكتبة العامة الآن." }, { status: 503 });

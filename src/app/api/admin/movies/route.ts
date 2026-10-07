@@ -13,6 +13,10 @@ export async function POST(request: Request) {
     const movie = sanitizeMovie(await request.json());
     const now = new Date();
     const database = await ensureDatabaseIndexes();
+    if (movie.sortOrder === undefined) {
+      const last = await database.collection<MovieDocument>("movies").findOne({}, { sort: { sortOrder: -1 }, projection: { sortOrder: 1 } });
+      movie.sortOrder = typeof last?.sortOrder === "number" ? last.sortOrder + 1 : 0;
+    }
     await database.collection<MovieDocument>("movies").updateOne(
       { id: movie.id },
       { $set: { ...movie, updatedAt: now }, $setOnInsert: { createdAt: now } },

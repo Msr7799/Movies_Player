@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { BarChart3, CheckSquare, Clapperboard, Eye, LogOut, Pencil, Play, Plus, Save, Search, Sparkles, Trash2, Upload, Users, X } from "lucide-react";
+import { BarChart3, CheckSquare, Clapperboard, Download, Eye, LogOut, Pencil, Play, Plus, Save, Search, Sparkles, Trash2, Upload, Users, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { Movie } from "@/lib/media-types";
 import { MOVIE_CATEGORIES, MOVIE_CATEGORY_LABELS, type MovieCategory } from "@/lib/movie-categories";
@@ -20,6 +20,8 @@ type AdminStats = {
 type EditorState = {
   id?: string;
   title: string;
+  description: string;
+  parameters: string;
   url: string;
   poster: string;
   quality: string;
@@ -30,7 +32,40 @@ type EditorState = {
 type AdminHistoryEntry = { movieId: string; movie: Movie; progress: number; duration: number; watchedAt: number };
 type ImportPreviewItem = { key: string; title: string; poster: string; qualities: number; raw: unknown };
 
-const EMPTY_EDITOR: EditorState = { title: "", url: "", poster: "", quality: "HLS • تلقائي", kind: "hls", categories: [] };
+function bracketBalance(value: string, opening: "[" | "{", closing: "]" | "}") {
+  let balance = 0;
+  let inString = false;
+  let escaped = false;
+  for (const character of value) {
+    if (escaped) { escaped = false; continue; }
+    if (inString && character === "\\") { escaped = true; continue; }
+    if (character === '"') { inString = !inString; continue; }
+    if (!inString && character === opening) balance += 1;
+    if (!inString && character === closing) balance -= 1;
+  }
+  return balance;
+}
+
+function parseImportJson(value: string) {
+  const normalized = value.replace(/^\uFEFF/, "").trim();
+  if (!normalized) throw new Error("ملف JSON فارغ.");
+  try {
+    return { parsed: JSON.parse(normalized) as unknown, repaired: false };
+  } catch (cause) {
+    let repaired = normalized.replace(/,\s*([}\]])/g, "$1");
+    if (/"movies"\s*:/.test(repaired) && bracketBalance(repaired, "[", "]") === 1 && repaired.endsWith("}")) {
+      repaired = `${repaired.slice(0, -1).trimEnd()}\n]\n}`;
+    }
+    try {
+      return { parsed: JSON.parse(repaired) as unknown, repaired: repaired !== normalized };
+    } catch {
+      const detail = cause instanceof Error ? cause.message : "صيغة JSON غير صالحة.";
+      throw new Error(`JSON غير صالح: ${detail}`);
+    }
+  }
+}
+
+const EMPTY_EDITOR: EditorState = { title: "", description: "", parameters: "{}", url: "", poster: "", quality: "HLS • تلقائي", kind: "hls", categories: [] };
 
 async function readJsonResponse<T>(response: Response, label: string): Promise<T> {
   const text = await response.text();
@@ -146,9 +181,21 @@ export function AdminDashboard() {
     event.preventDefault();
     setBusy(true);
     setError("");
+    let parsedParameters: Movie["parameters"];
+    try {
+      const parsed = JSON.parse(editor.parameters || "{}") as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
+      parsedParameters = parsed as Movie["parameters"];
+    } catch {
+      setError("الباراميترات يجب أن تكون JSON object صالحًا.");
+      setBusy(false);
+      return;
+    }
     const movie: Movie = {
       id: editor.id || `movie-${crypto.randomUUID()}`,
       title: editor.title,
+      description: editor.description,
+      parameters: parsedParameters,
       poster: editor.poster || undefined,
       categories: editor.categories,
       sources: [{ quality: editor.quality || "أصلي", url: editor.url, size: 0, kind: editor.kind }],
@@ -177,6 +224,8 @@ export function AdminDashboard() {
     setEditor({
       id: movie.id,
       title: movie.title,
+      description: movie.description || "",
+      parameters: JSON.stringify(movie.parameters ?? {}, null, 2),
       url: source?.url || "",
       poster: movie.poster || "",
       quality: source?.quality || "أصلي",
@@ -184,6 +233,26 @@ export function AdminDashboard() {
       categories: movie.categories ?? [],
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function exportHistoryJson() {
+    const payload = {
+      schema: "any-movie-history-export",
+      schemaVersion: 1,
+      exportedAt: new Date().toISOString(),
+      movieCount: history.length,
+      movies: history.map((entry) => ({
+        ...entry.movie,
+        playback: { progress: entry.progress, duration: entry.duration, watchedAt: entry.watchedAt },
+      })),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `any-movie-history-${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
   }
 
   async function deleteMovie(movie: Movie) {
@@ -259,9 +328,7 @@ export function AdminDashboard() {
   }
 
   function parseImportPreview(value = importJson) {
-    const normalized = value.replace(/^\uFEFF/, "").trim();
-    if (!normalized) throw new Error("ملف JSON فارغ.");
-    const parsed = JSON.parse(normalized) as unknown;
+    const { parsed, repaired } = parseImportJson(value);
     let records: unknown[] = [];
     if (Array.isArray(parsed)) records = parsed;
     else if (parsed && typeof parsed === "object") {
@@ -288,7 +355,7 @@ export function AdminDashboard() {
     setImportPreview(preview);
     setSelectedImport([]);
     setImportError("");
-    setImportMessage(`تمت معاينة ${preview.length} فيلمًا. رتّب القائمة واحذف غير المطلوب ثم انشر.`);
+    setImportMessage(`${repaired ? "تم إصلاح قوس مصفوفة movies أو فاصلة زائدة تلقائيًا. " : ""}تمت معاينة ${preview.length} فيلمًا. رتّب القائمة واحذف غير المطلوب ثم انشر.`);
     return preview;
   }
 
@@ -382,9 +449,9 @@ export function AdminDashboard() {
       <div className="mx-auto max-w-7xl">
         <header className="mb-6 flex flex-wrap items-center gap-3">
           <div className="min-w-0 flex-1"><p className="text-xs font-bold text-rose-300">ADMIN ACCESS</p><h1 className="mt-1 text-2xl font-black">لوحة إدارة سينما</h1></div>
-          <button onClick={() => setEditorPanelOpen((value) => !value)} className="group relative grid size-10 place-items-center rounded-xl border border-white/10 bg-white/5" title={editorPanelOpen ? "إغلاق أدوات النشر" : "فتح أدوات النشر"}>
-            <Image src={editorPanelOpen ? "/sidebar-on.png" : "/sidebar-off.png"} alt="" width={24} height={24} className="transition group-hover:opacity-0" />
-            <Image src={editorPanelOpen ? "/sidebar-on-hover.png" : "/sidebar-off-hover.png"} alt="" width={24} height={24} className="absolute opacity-0 transition group-hover:opacity-100" />
+          <button onClick={() => setEditorPanelOpen((value) => !value)} className="group relative grid size-10 place-items-center rounded-xl border border-white/10 bg-white/5 shadow-lg transition duration-700 ease-[cubic-bezier(.22,1,.36,1)] hover:-translate-y-0.5 hover:border-rose-300/30 hover:shadow-rose-950/30" title={editorPanelOpen ? "إغلاق أدوات النشر" : "فتح أدوات النشر"}>
+            <Image src={editorPanelOpen ? "/sidebar-on.png" : "/sidebar-off.png"} alt="" width={24} height={24} className="transition duration-500 group-hover:scale-110 group-hover:opacity-0" />
+            <Image src={editorPanelOpen ? "/sidebar-on-hover.png" : "/sidebar-off-hover.png"} alt="" width={24} height={24} className="absolute scale-90 opacity-0 transition duration-500 group-hover:scale-110 group-hover:opacity-100" />
           </button>
           <Link href="/" className="rounded-xl border border-white/10 px-4 py-2 text-xs font-bold hover:bg-white/5"><Play className="ml-2 inline" size={15} />المشغل</Link>
           <button onClick={() => void logout()} className="rounded-xl border border-red-400/20 px-4 py-2 text-xs font-bold text-red-200 hover:bg-red-500/10"><LogOut className="ml-2 inline" size={15} />خروج</button>
@@ -399,10 +466,12 @@ export function AdminDashboard() {
           <StatCard icon={<Play />} label="سجلات التشغيل" value={stats?.historyCount ?? 0} />
         </section>
 
-        <div className={`grid gap-6 ${editorPanelOpen ? "xl:grid-cols-[390px_minmax(0,1fr)]" : "grid-cols-1"}`}>
-          {editorPanelOpen && <form onSubmit={saveMovie} className="glass h-fit rounded-3xl p-5">
+        <div className="admin-dashboard-grid gap-6" data-editor-open={editorPanelOpen}>
+          <div className="admin-editor-panel overflow-hidden transition-[max-height,opacity,transform,filter] duration-700 ease-[cubic-bezier(.22,1,.36,1)]">
+          <form onSubmit={saveMovie} className="glass h-fit min-w-[min(390px,calc(100vw-40px))] rounded-3xl p-5">
             <div className="mb-5 flex items-center gap-3"><span className="navy-glass grid size-10 place-items-center rounded-xl">{editor.id ? <Pencil size={18} /> : <Plus size={18} />}</span><div><h2 className="text-sm font-black">{editor.id ? "تعديل الفيلم" : "نشر فيلم جديد"}</h2><p className="mt-1 text-[10px] text-zinc-500">يظهر فورًا لكل زوار الموقع</p></div>{editor.id && <button type="button" onClick={() => setEditor(EMPTY_EDITOR)} className="mr-auto rounded-lg p-2 text-zinc-500 hover:bg-white/10"><X size={17} /></button>}</div>
             <EditorInput label="اسم الفيلم" value={editor.title} onChange={(title) => setEditor({ ...editor, title })} required />
+            <label className="mb-4 block text-xs font-bold text-zinc-400">نبذة الفيلم<textarea value={editor.description} onChange={(event) => setEditor({ ...editor, description: event.target.value })} rows={4} className="mt-2 w-full rounded-xl border border-white/10 bg-black/25 p-3 text-sm leading-6 outline-none focus:border-rose-400" placeholder="وصف مختصر يظهر في تفاصيل الفيلم..." /></label>
             <EditorInput label="رابط HLS أو الفيديو" value={editor.url} onChange={(url) => setEditor({ ...editor, url })} required ltr />
             <EditorInput label="رابط الصورة (اختياري)" value={editor.poster} onChange={(poster) => setEditor({ ...editor, poster })} ltr />
             <div className="mb-4 grid grid-cols-2 gap-2">
@@ -415,9 +484,11 @@ export function AdminDashboard() {
                 {MOVIE_CATEGORIES.map(([id, label]) => <label key={id} className="flex items-center gap-2 text-[11px] text-zinc-400"><input type="checkbox" checked={editor.categories.includes(id)} onChange={(event) => setEditor({ ...editor, categories: event.target.checked ? [...editor.categories, id] : editor.categories.filter((item) => item !== id) })} />{label}</label>)}
               </div>
             </fieldset>
+            <label className="mb-4 block text-xs font-bold text-zinc-400">الباراميترات المتقدمة (JSON)<textarea value={editor.parameters} onChange={(event) => setEditor({ ...editor, parameters: event.target.value })} rows={5} dir="ltr" className="mt-2 w-full rounded-xl border border-white/10 bg-black/25 p-3 font-mono text-xs outline-none focus:border-rose-400" placeholder='{"referer":"https://example.com","autoplay":false}' /></label>
             {error && <p className="mb-3 rounded-xl bg-red-500/10 p-3 text-xs text-red-200">{error}</p>}
             <button disabled={busy} className="navy-glass flex h-12 w-full items-center justify-center gap-2 rounded-xl text-sm font-black disabled:opacity-50"><Save size={17} />{busy ? "جارِ الحفظ..." : editor.id ? "حفظ التعديلات" : "نشر للعامة"}</button>
-          </form>}
+          </form>
+          </div>
 
           <div className="space-y-6">
             <section className="glass rounded-3xl p-5">
@@ -453,7 +524,7 @@ export function AdminDashboard() {
             </section>
             <section className="grid gap-6 lg:grid-cols-2">
               <div className="glass rounded-3xl p-5"><h2 className="mb-4 text-sm font-black">الأكثر تشغيلًا</h2><div className="space-y-2">{stats?.topMovies.map((movie, index) => <div key={movie._id} className="flex items-center gap-3 rounded-xl bg-black/20 p-3"><span className="grid size-8 place-items-center rounded-lg bg-white/5 text-xs font-black">{index + 1}</span><span className="min-w-0 flex-1 truncate text-xs font-bold">{movie.title}</span><span className="text-[10px] text-zinc-500">{movie.plays} تشغيل</span></div>)}</div></div>
-              <div className="glass rounded-3xl p-5"><div className="mb-4 flex flex-wrap items-center gap-2"><h2 className="ml-auto text-sm font-black">إدارة شوهد مؤخرًا</h2><button disabled={!selectedHistory.length} onClick={() => void deleteSelectedHistory()} className="rounded-lg bg-red-500/10 px-2 py-2 text-[10px] text-red-200 disabled:opacity-30"><Trash2 className="ml-1 inline" size={13} />حذف المحدد ({selectedHistory.length})</button></div><div className="relative mb-3"><Search className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-600" size={14} /><input value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder="ابحث في شوهد مؤخرًا..." className="h-10 w-full rounded-xl border border-white/10 bg-black/25 pr-9 pl-3 text-xs outline-none" /></div><div className="max-h-[520px] space-y-2 overflow-y-auto">{visibleHistory.map((entry) => <div key={entry.movieId} className="flex items-center gap-2 rounded-xl bg-black/20 p-3"><input type="checkbox" checked={selectedHistory.includes(entry.movieId)} onChange={() => setSelectedHistory((current) => current.includes(entry.movieId) ? current.filter((id) => id !== entry.movieId) : [...current, entry.movieId])} /><div className="min-w-0 flex-1"><div className="truncate text-xs font-bold">{entry.movie.title}</div><div className="mt-1 text-[10px] text-zinc-500">{new Date(entry.watchedAt).toLocaleString("ar-BH")} • {entry.duration ? Math.round(entry.progress / entry.duration * 100) : 0}%</div></div><button onClick={() => void renameHistory(entry)} className="rounded-lg p-2 text-zinc-500 hover:bg-white/10 hover:text-white" title="تعديل الاسم"><Pencil size={14} /></button><button onClick={() => void deleteHistory(entry.movieId)} className="rounded-lg p-2 text-zinc-600 hover:bg-red-500/10 hover:text-red-200" title="حذف هذا الفيلم فقط"><Trash2 size={14} /></button></div>)}</div></div>
+              <div className="glass rounded-3xl p-5"><div className="mb-4 flex flex-wrap items-center gap-2"><h2 className="ml-auto text-sm font-black">إدارة شوهد مؤخرًا</h2><button onClick={exportHistoryJson} disabled={!history.length} className="rounded-lg bg-cyan-500/10 px-2 py-2 text-[10px] text-cyan-100 disabled:opacity-30"><Download className="ml-1 inline" size={13} />تصدير JSON</button><button disabled={!selectedHistory.length} onClick={() => void deleteSelectedHistory()} className="rounded-lg bg-red-500/10 px-2 py-2 text-[10px] text-red-200 disabled:opacity-30"><Trash2 className="ml-1 inline" size={13} />حذف المحدد ({selectedHistory.length})</button></div><div className="relative mb-3"><Search className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-600" size={14} /><input value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder="ابحث في شوهد مؤخرًا..." className="h-10 w-full rounded-xl border border-white/10 bg-black/25 pr-9 pl-3 text-xs outline-none" /></div><div className="max-h-[520px] space-y-2 overflow-y-auto">{visibleHistory.map((entry) => <div key={entry.movieId} className="flex items-center gap-2 rounded-xl bg-black/20 p-3"><input type="checkbox" checked={selectedHistory.includes(entry.movieId)} onChange={() => setSelectedHistory((current) => current.includes(entry.movieId) ? current.filter((id) => id !== entry.movieId) : [...current, entry.movieId])} /><div className="min-w-0 flex-1"><div className="truncate text-xs font-bold">{entry.movie.title}</div><div className="mt-1 text-[10px] text-zinc-500">{new Date(entry.watchedAt).toLocaleString("ar-BH")} • {entry.duration ? Math.round(entry.progress / entry.duration * 100) : 0}%</div></div><button onClick={() => void renameHistory(entry)} className="rounded-lg p-2 text-zinc-500 hover:bg-white/10 hover:text-white" title="تعديل الاسم"><Pencil size={14} /></button><button onClick={() => void deleteHistory(entry.movieId)} className="rounded-lg p-2 text-zinc-600 hover:bg-red-500/10 hover:text-red-200" title="حذف هذا الفيلم فقط"><Trash2 size={14} /></button></div>)}</div></div>
             </section>
           </div>
         </div>

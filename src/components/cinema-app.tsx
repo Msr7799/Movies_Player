@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import {
-  BarChart3, Clapperboard, FolderOpen, History, Library, Link2, Pencil, Play, Search,
+  BarChart3, Clapperboard, Copy, Eye, FolderOpen, History, Library, Link2, Pencil, Play, Search,
   Sparkles, Trash2, X,
 } from "lucide-react";
 import type { DiscoveryResult, Movie, PlaybackHistoryEntry, PlaybackHistorySnapshot, SubtitleTrack } from "@/lib/media-types";
@@ -66,6 +66,7 @@ function persistHistory(entries: HistoryEntry[]) {
 export function CinemaApp() {
   const [movies, setMovies] = useState<Movie[]>([VEER_ZAARA_MOVIE]);
   const [activeMovie, setActiveMovie] = useState<Movie>(VEER_ZAARA_MOVIE);
+  const [catalogReady, setCatalogReady] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("library");
   const [loading, setLoading] = useState(true);
@@ -84,6 +85,7 @@ export function CinemaApp() {
   const remoteSyncTimes = useRef(new Map<string, number>());
   const smartTitleAttempts = useRef(new Set<string>());
   const smartTitleCompleted = useRef(new Set<string>());
+  const catalogMovieIds = useRef(new Set<string>());
   const [adminAuthenticated, setAdminAuthenticated] = useState(false);
 
   const loadLibrary = useCallback(async () => {
@@ -97,12 +99,16 @@ export function CinemaApp() {
       const publicMovies = catalogResult.status === "fulfilled" ? catalogResult.value.movies ?? [] : [];
       const publicHistory = historyResult.status === "fulfilled" ? historyResult.value.history ?? [] : [];
       const browserHistory = readHistory();
+      catalogMovieIds.current = new Set(publicMovies.map((movie) => movie.id));
       setMovies((current) => {
-        const merged = [VEER_ZAARA_MOVIE, ...publicMovies, ...localMovies, ...publicHistory.map((entry) => entry.movie), ...current];
+        const merged = [...publicMovies, ...localMovies, ...publicHistory.map((entry) => entry.movie), VEER_ZAARA_MOVIE, ...current];
         const unique = new Map<string, Movie>();
         for (const movie of merged) if (!unique.has(movie.id)) unique.set(movie.id, movie);
         return [...unique.values()];
       });
+      setActiveMovie((current) => current.id === VEER_ZAARA_MOVIE.id
+        ? publicMovies[0] ?? localMovies[0] ?? publicHistory[0]?.movie ?? VEER_ZAARA_MOVIE
+        : current);
       setHistory((current) => {
         const merged = [...publicHistory, ...browserHistory, ...current].sort((a, b) => b.watchedAt - a.watchedAt);
         const unique = new Map<string, HistoryEntry>();
@@ -120,6 +126,7 @@ export function CinemaApp() {
         })));
     } finally {
       setLoading(false);
+      setCatalogReady(true);
     }
   }, []);
 
@@ -334,9 +341,10 @@ export function CinemaApp() {
     reordered.splice(to, 0, dragged);
     const withOrder = reordered.map((movie, sortOrder) => ({ ...movie, sortOrder }));
     setMovies(withOrder);
+    const persistedOrder = withOrder.filter((movie) => catalogMovieIds.current.has(movie.id)).map((movie) => movie.id);
     void fetch("/api/admin/movies/reorder", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: withOrder.map((movie) => movie.id) }),
-    }).catch(() => undefined);
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: persistedOrder }),
+    }).then((response) => { if (!response.ok) void loadLibrary(); }).catch(() => void loadLibrary());
   }
 
   function openLocalFiles(files: FileList | null) {
@@ -452,8 +460,8 @@ export function CinemaApp() {
       <header className="sticky top-0 z-40 border-b border-white/5 bg-[#09090b]/85 backdrop-blur-xl">
         <div className="mx-auto flex min-h-[64px] max-w-[1600px] items-center gap-2 px-3 py-2 sm:h-[72px] sm:gap-4 sm:px-7 sm:py-0">
           <button
-            className="group relative grid size-10 shrink-0 place-items-center rounded-xl hover:bg-white/10"
-            onClick={() => { if (window.matchMedia("(min-width: 1024px)").matches) setSidebarEnabled((value) => !value); else setSidebarOpen(true); }}
+            className="group relative grid size-10 shrink-0 place-items-center rounded-xl hover:bg-white/10 lg:hidden"
+            onClick={() => setSidebarOpen(true)}
             aria-label="فتح المكتبة"
           >
             <Image src={sidebarEnabled ? "/sidebar-on-toggle.png" : "/sidebar-off-1.png"} alt="" width={24} height={24} className="transition group-hover:opacity-0" />
@@ -521,7 +529,17 @@ export function CinemaApp() {
         </div>
       </header>
 
-      <div className={`mx-auto grid max-w-[1600px] ${sidebarEnabled ? "lg:grid-cols-[280px_minmax(0,1fr)]" : "lg:grid-cols-1"}`}>
+      <button
+        className="group fixed top-[82px] z-[55] hidden size-10 place-items-center rounded-xl border border-white/10 bg-[#111722]/95 shadow-xl shadow-black/30 backdrop-blur-xl transition-[right,transform,box-shadow] duration-700 ease-[cubic-bezier(.22,1,.36,1)] hover:-translate-y-0.5 hover:border-rose-300/35 hover:shadow-rose-950/30 lg:grid"
+        style={{ right: sidebarEnabled ? "max(260px, calc((100vw - 1600px) / 2 + 260px))" : "max(16px, calc((100vw - 1600px) / 2 + 16px))" }}
+        onClick={() => setSidebarEnabled((value) => !value)}
+        aria-label={sidebarEnabled ? "إخفاء المكتبة" : "إظهار المكتبة"}
+      >
+        <Image src={sidebarEnabled ? "/sidebar-on-toggle.png" : "/sidebar-off-1.png"} alt="" width={24} height={24} className="transition duration-500 group-hover:scale-110 group-hover:opacity-0" />
+        <Image src="/sidebare-off-toggle.png" alt="" width={24} height={24} className="absolute scale-90 opacity-0 transition duration-500 group-hover:scale-110 group-hover:opacity-100" />
+      </button>
+
+      <div className="mx-auto max-w-[1600px] lg:flex lg:items-start">
         <LibrarySidebar
           movies={filteredMovies}
           history={filteredHistory}
@@ -548,7 +566,7 @@ export function CinemaApp() {
           onSelect={selectMovie}
         />
 
-        <section className="min-w-0 px-2.5 py-4 sm:px-7 sm:py-8 lg:px-10">
+        <section className="min-w-0 flex-1 px-2.5 py-4 transition-[width,padding] duration-700 ease-[cubic-bezier(.22,1,.36,1)] sm:px-7 sm:py-8 lg:px-10">
           <div className="animate-fade-up mx-auto max-w-[1250px]">
             <MovieDiscovery onPlay={playDiscoveredResult} />
 
@@ -558,7 +576,8 @@ export function CinemaApp() {
                   <span className="size-1.5 animate-pulse rounded-full bg-rose-500" />
                   يعرض الآن
                 </div>
-                <h1 className="line-clamp-1 text-xl font-bold sm:text-2xl">{activeMovie.title}</h1>
+                <h1 className="line-clamp-2 text-xl font-bold sm:line-clamp-1 sm:text-2xl">{catalogReady ? activeMovie.title : "جارِ تحميل ترتيب المكتبة..."}</h1>
+                {catalogReady && activeMovie.description && <p className="mt-2 line-clamp-2 max-w-3xl text-xs leading-6 text-zinc-500 sm:text-sm">{activeMovie.description}</p>}
               </div>
               {activeMovie.sources.length > 0 && (
                 <span className="hidden rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] text-zinc-400 sm:block">
@@ -567,7 +586,7 @@ export function CinemaApp() {
               )}
             </div>
 
-            <VideoPlayer
+            {catalogReady ? <VideoPlayer
               key={`${activeMovie.id}:${activeMovie.sources[0]?.url ?? "none"}`}
               movie={activeMovie}
               onOpenFiles={() => fileInput.current?.click()}
@@ -576,7 +595,7 @@ export function CinemaApp() {
                 updateMoviePoster(activeMovie.id, poster);
                 void identifyMovieTitle(activeMovie, poster, capturedAt);
               }}
-            />
+            /> : <div className="aspect-video animate-pulse rounded-3xl border border-white/8 bg-gradient-to-br from-white/[.055] to-transparent" />}
 
             <div className="mt-6 grid gap-4 md:grid-cols-3">
               <FeatureCard icon={<Sparkles size={18} />} title="HLS والجودات" text="تشغيل قوائم m3u8 مع اختيار تلقائي أو يدوي للجودة وعرض تفاصيل البث." />
@@ -686,7 +705,7 @@ function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, ope
   return (
     <>
       {open && <button className="fixed inset-0 z-40 bg-black/70 lg:hidden" onClick={onClose} aria-label="إغلاق المكتبة" />}
-      <aside className={`fixed inset-y-0 right-0 z-50 w-[min(88vw,330px)] border-l border-white/5 bg-[#0e0e11] p-4 transition-transform lg:sticky lg:top-[72px] lg:z-20 lg:h-[calc(100vh-72px)] lg:w-auto lg:translate-x-0 ${desktopVisible ? "lg:block" : "lg:hidden"} ${open ? "translate-x-0" : "translate-x-full"}`}>
+      <aside className={`fixed inset-y-0 right-0 z-50 w-[min(92vw,360px)] border-l border-white/5 bg-[#0e0e11]/98 p-4 shadow-2xl shadow-black/40 backdrop-blur-xl transition-[transform,width,opacity,padding,border-color,filter] duration-700 ease-[cubic-bezier(.22,1,.36,1)] lg:sticky lg:top-[72px] lg:z-20 lg:h-[calc(100vh-72px)] lg:shrink-0 lg:overflow-hidden lg:shadow-none ${desktopVisible ? "lg:w-[280px] lg:translate-x-0 lg:opacity-100 lg:blur-0" : "lg:pointer-events-none lg:w-0 lg:translate-x-10 lg:border-transparent lg:p-0 lg:opacity-0 lg:blur-sm"} ${open ? "translate-x-0" : "translate-x-full"}`}>
         <div className="mb-6 flex items-center justify-between pt-2">
           <div className="flex items-center gap-2 text-sm font-bold"><Library size={17} className="text-rose-400" /> مكتبتي</div>
           <button className="p-2 text-zinc-500 lg:hidden" onClick={onClose}><X size={18} /></button>
@@ -704,7 +723,7 @@ function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, ope
           <span>{count}</span>
         </div>
         <p className="mb-2 px-1 text-[9px] text-zinc-600">اضغط بزر الفأرة الأيمن على الفيلم لفتح مركز التخصيص.</p>
-        <div className="space-y-2 overflow-y-auto lg:max-h-[calc(100vh-250px)]">
+        <div className="overscroll-contain touch-pan-y space-y-2 overflow-y-auto lg:max-h-[calc(100vh-250px)]">
           {mode === "library" && loading && <div className="rounded-xl bg-white/5 p-4 text-xs text-zinc-500">جارِ قراءة مجلد assets...</div>}
           {mode === "library" && !loading && movies.length === 0 && (
             <div className="rounded-xl border border-dashed border-white/10 p-4 text-center text-xs leading-6 text-zinc-500">أضف فيلمًا إلى البرنامج</div>
@@ -757,13 +776,29 @@ function MovieSidebarCard({ movie, active, onSelect, onSelectSource, onFilterCat
   progress?: number;
   manage?: { onRename: () => void; onDelete: () => void };
 }) {
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; mobile: boolean } | null>(null);
+  const [posterExpanded, setPosterExpanded] = useState(false);
+  const openMenu = (x: number, y: number) => {
+    const mobile = window.innerWidth < 640;
+    setMenu({
+      mobile,
+      x: mobile ? 8 : Math.max(8, Math.min(x, window.innerWidth - 370)),
+      y: mobile ? 0 : Math.max(8, Math.min(y, window.innerHeight - 570)),
+    });
+  };
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
+    const closeOnScroll = (event: Event) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest("[data-movie-menu]")) return;
+      close();
+    };
+    const closeOnKey = (event: KeyboardEvent) => { if (event.key === "Escape") close(); };
     window.addEventListener("click", close);
-    window.addEventListener("scroll", close, true);
-    return () => { window.removeEventListener("click", close); window.removeEventListener("scroll", close, true); };
+    window.addEventListener("scroll", closeOnScroll, true);
+    window.addEventListener("keydown", closeOnKey);
+    return () => { window.removeEventListener("click", close); window.removeEventListener("scroll", closeOnScroll, true); window.removeEventListener("keydown", closeOnKey); };
   }, [menu]);
   const toggleCategory = (category: MovieCategory) => {
     const current = movie.categories ?? [];
@@ -776,10 +811,10 @@ function MovieSidebarCard({ movie, active, onSelect, onSelectSource, onFilterCat
       onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/movie-id", movie.id); }}
       onDragOver={(event) => { if (manage) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; } }}
       onDrop={(event) => { event.preventDefault(); const draggedId = event.dataTransfer.getData("text/movie-id"); if (draggedId) onReorder(draggedId, movie.id); }}
-      onContextMenu={(event) => { event.preventDefault(); setMenu({ x: Math.max(8, Math.min(event.clientX, window.innerWidth - 310)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - 520)) }); }}
+      onContextMenu={(event) => { event.preventDefault(); openMenu(event.clientX, event.clientY); }}
     >
       <button onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-3 text-right">
-      <span className="relative grid aspect-video w-20 shrink-0 place-items-center overflow-hidden rounded-lg bg-gradient-to-br from-zinc-800 to-zinc-950">
+      <span className="relative grid aspect-video w-24 shrink-0 place-items-center overflow-hidden rounded-lg bg-gradient-to-br from-zinc-800 to-zinc-950 sm:w-20">
         {movie.poster ? <Image src={movie.poster} alt="" fill sizes="80px" unoptimized className="object-cover" /> : <Clapperboard size={19} className="text-zinc-600" />}
         <span className="absolute inset-0 grid place-items-center bg-black/35 opacity-0 transition group-hover:opacity-100"><Play size={16} className="fill-white" /></span>
         {typeof progress === "number" && progress > 0 && <span className="absolute inset-x-0 bottom-0 h-1 bg-white/20"><span className="block h-full bg-rose-300" style={{ width: `${progress}%` }} /></span>}
@@ -791,11 +826,12 @@ function MovieSidebarCard({ movie, active, onSelect, onSelectSource, onFilterCat
         {!movie.categories?.length && <span className="mt-1 block text-[9px] text-zinc-600">غير مصنفة</span>}
       </span>
       </button>
-      <button onClick={(event) => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); setMenu({ x: Math.max(8, Math.min(rect.left - 260, window.innerWidth - 310)), y: Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - 520)) }); }} className="rounded-md p-1.5 text-zinc-600 hover:bg-white/10 hover:text-white" title="تخصيص الفيلم"><Image src="/sidebar-off-1.png" alt="" width={16} height={16} /></button>
+      <button onClick={(event) => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); openMenu(rect.left - 330, rect.bottom + 4); }} className="rounded-md p-1.5 text-zinc-600 hover:bg-white/10 hover:text-white" title="تخصيص الفيلم"><Image src="/sidebar-off-1.png" alt="" width={16} height={16} /></button>
       {manage && <span className="flex shrink-0 flex-col gap-1"><button onClick={manage.onRename} className="rounded-md p-1.5 text-zinc-500 hover:bg-white/10 hover:text-white" title="تعديل الاسم"><Pencil size={12} /></button><button onClick={manage.onDelete} className="rounded-md p-1.5 text-zinc-600 hover:bg-red-500/10 hover:text-red-200" title="حذف هذا الفيلم فقط"><Trash2 size={12} /></button></span>}
-      {menu && createPortal(<div className="fixed z-[100] w-[300px] overflow-hidden rounded-2xl border border-white/10 bg-[#111722]/98 text-right shadow-2xl backdrop-blur-xl" style={{ left: menu.x, top: menu.y }} dir="rtl" onClick={(event) => event.stopPropagation()}>
-        <div className="border-b border-white/8 px-4 py-3"><div className="truncate text-xs font-black">{movie.title}</div><div className="mt-1 text-[9px] text-zinc-500">مركز تخصيص الفيلم</div></div>
-        <div className="max-h-[430px] overflow-y-auto p-2">
+      {menu && createPortal(<div data-movie-menu className="fixed z-[100] w-[360px] max-w-[calc(100vw-16px)] animate-fade-up overflow-hidden rounded-2xl border border-white/10 bg-[#111722]/98 text-right shadow-2xl shadow-black/60 backdrop-blur-xl" style={{ left: menu.x, top: menu.mobile ? undefined : menu.y, bottom: menu.mobile ? 8 : undefined }} dir="rtl" onClick={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>
+        {movie.poster && <button onClick={() => setPosterExpanded(true)} className="group relative block aspect-video w-full overflow-hidden bg-black" title="عرض الصورة بالحجم الكبير"><Image src={movie.poster} alt={`صورة ${movie.title}`} fill sizes="360px" unoptimized className="object-cover transition duration-700 group-hover:scale-105" /><span className="absolute inset-0 grid place-items-center bg-black/0 transition group-hover:bg-black/35"><Eye className="opacity-0 transition group-hover:opacity-100" /></span></button>}
+        <div className="border-b border-white/8 px-4 py-3"><div className="text-sm font-black leading-6">{movie.title}</div>{movie.description && <p className="mt-2 line-clamp-3 text-[11px] leading-5 text-zinc-400">{movie.description}</p>}<div className="mt-1 text-[9px] text-zinc-500">مركز تخصيص الفيلم</div></div>
+        <div className="max-h-[min(430px,48dvh)] overscroll-contain touch-pan-y overflow-y-auto p-2">
           <div className="px-2 py-1 text-[10px] font-bold text-zinc-500">الجودة والمصدر</div>
           {movie.sources.map((source, index) => <button key={`${source.url}-${index}`} onClick={() => { onSelectSource(source.url); setMenu(null); }} className="flex w-full items-center rounded-lg px-2 py-2 text-[11px] hover:bg-white/7"><span>{source.quality}</span><span className="mr-auto max-w-28 truncate text-left text-[8px] text-zinc-600" dir="ltr">{source.kind ?? "video"}</span></button>)}
           <div className="mt-2 border-t border-white/8 px-2 pb-1 pt-3 text-[10px] font-bold text-zinc-500">التصنيفات</div>
@@ -807,9 +843,12 @@ function MovieSidebarCard({ movie, active, onSelect, onSelectSource, onFilterCat
               {manage && <input type="color" value={categoryColors[category] ?? "#7c3aed"} onChange={(event) => onCategoryColorChange(category, event.target.value)} className="size-6 cursor-pointer rounded border-0 bg-transparent" title="لون التصنيف" />}
             </div>;
           })}
+          {Boolean(movie.parameters && Object.keys(movie.parameters).length) && <details className="mt-2 rounded-xl border border-white/8 bg-black/20 p-2"><summary className="cursor-pointer text-[10px] font-bold text-zinc-400">الباراميترات المتقدمة</summary><pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-all text-left text-[9px] text-zinc-500" dir="ltr">{JSON.stringify(movie.parameters, null, 2)}</pre></details>}
+          <button onClick={() => void navigator.clipboard.writeText(JSON.stringify(movie, null, 2))} className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-cyan-500/10 px-2 py-2 text-[10px] text-cyan-100"><Copy size={12} />نسخ بيانات الفيلم JSON</button>
           {manage && <div className="mt-2 grid grid-cols-2 gap-2 border-t border-white/8 pt-2"><button onClick={() => { manage.onRename(); setMenu(null); }} className="rounded-lg bg-white/7 px-2 py-2 text-[10px]">تعديل الاسم</button><button onClick={() => { manage.onDelete(); setMenu(null); }} className="rounded-lg bg-red-500/10 px-2 py-2 text-[10px] text-red-200">حذف الفيلم</button></div>}
         </div>
       </div>, document.body)}
+      {posterExpanded && movie.poster && createPortal(<button className="fixed inset-0 z-[120] grid place-items-center bg-black/90 p-3 backdrop-blur-md sm:p-8" onClick={() => setPosterExpanded(false)} aria-label="إغلاق الصورة الكبيرة"><span className="relative block aspect-video w-full max-w-5xl overflow-hidden rounded-2xl border border-white/10 shadow-2xl"><Image src={movie.poster} alt={`صورة ${movie.title}`} fill sizes="100vw" unoptimized className="object-contain" /></span></button>, document.body)}
     </div>
   );
 }
