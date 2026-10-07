@@ -2,7 +2,7 @@
 
 import { Captions, Clapperboard, ExternalLink, Languages, LoaderCircle, Play, Search, ShieldCheck, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { DiscoveryResponse, DiscoveryResult } from "@/lib/media-types";
+import type { DiscoveryResponse, DiscoveryResult, SearchProvider } from "@/lib/media-types";
 import {
   MOVIE_LANGUAGE_OPTIONS, SUBTITLE_LANGUAGE_OPTIONS,
   type MovieLanguageValue, type SubtitleLanguageValue,
@@ -21,6 +21,7 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
   const [movieLanguage, setMovieLanguage] = useState<MovieLanguageValue>("any");
   const [subtitleLanguage, setSubtitleLanguage] = useState<SubtitleLanguageValue>("any");
   const [allowShortClips, setAllowShortClips] = useState(false);
+  const [searchProvider, setSearchProvider] = useState<SearchProvider>("tavily");
   const suggestionCache = useRef(new Map<string, MovieSuggestion[]>());
   const suppressNextSuggestion = useRef(false);
 
@@ -95,7 +96,7 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
       const response = await fetch("/api/discover", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: value, movieLanguage, subtitleLanguage, allowShortClips }),
+        body: JSON.stringify({ query: value, movieLanguage, subtitleLanguage, allowShortClips, searchProvider }),
       });
       const payload = await response.json() as DiscoveryResponse & { error?: string };
       if (!response.ok) throw new Error(payload.error || "تعذر إكمال البحث.");
@@ -115,7 +116,7 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
         </span>
         <div>
           <h2 id="ai-search-title" className="text-base font-black sm:text-lg">البحث الذكي عن الأفلام</h2>
-          <p className="mt-1 text-xs leading-6 text-zinc-400">اكتب الاسم بأي لغة. يبحث Gemini وTavily عن الفيلم الكامل في مصادر قانونية موثوقة، مع استبعاد المقاطع افتراضيًا.</p>
+          <p className="mt-1 text-xs leading-6 text-zinc-400">اكتب الاسم بأي لغة. يستخدم Gemini مزود البحث الذي تختاره للعثور على الفيلم الكامل في مصادر قانونية موثوقة، مع استبعاد المقاطع افتراضيًا.</p>
         </div>
       </div>
 
@@ -199,6 +200,31 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
           </label>
         </div>
 
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-4 py-3">
+          <span>
+            <span className="block text-xs font-bold text-zinc-100">مزود البحث</span>
+            <span className="mt-1 block text-[10px] text-zinc-500">بدّل بين Tavily وSerper قبل بدء البحث.</span>
+          </span>
+          <label className="flex cursor-pointer items-center gap-2" aria-label="مزود البحث">
+            <span className={`text-xs font-bold transition ${searchProvider === "tavily" ? "text-rose-200" : "text-zinc-500"}`}>Tavily</span>
+            <input
+              type="checkbox"
+              checked={searchProvider === "serper"}
+              disabled={loading}
+              onChange={(event) => {
+                setSearchProvider(event.target.checked ? "serper" : "tavily");
+                setData(null);
+                setError("");
+              }}
+              className="peer sr-only"
+            />
+            <span className="relative h-7 w-12 shrink-0 rounded-full border border-white/15 bg-[#263d5c] transition peer-checked:bg-rose-500/70 peer-focus-visible:ring-2 peer-focus-visible:ring-rose-300 peer-disabled:cursor-not-allowed peer-disabled:opacity-50">
+              <span className={`absolute right-1 top-1 size-5 rounded-full bg-white shadow transition-transform ${searchProvider === "serper" ? "-translate-x-5" : ""}`} />
+            </span>
+            <span className={`text-xs font-bold transition ${searchProvider === "serper" ? "text-rose-200" : "text-zinc-500"}`}>Serper</span>
+          </label>
+        </div>
+
         <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-white/10 bg-black/20 px-4 py-3 transition hover:border-[#45658f]/70 hover:bg-[#111d2e]/45">
           <span className="flex min-w-0 items-start gap-3">
             <Clapperboard className="mt-0.5 shrink-0 text-slate-300" size={17} />
@@ -230,6 +256,7 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
               </span>
               {movieLanguage !== "any" && <span className="rounded-full bg-white/7 px-3 py-1 text-[10px] text-zinc-300">{MOVIE_LANGUAGE_OPTIONS.find((option) => option.value === movieLanguage)?.label}</span>}
               {subtitleLanguage !== "any" && <span className="rounded-full bg-white/7 px-3 py-1 text-[10px] text-zinc-300">{SUBTITLE_LANGUAGE_OPTIONS.find((option) => option.value === subtitleLanguage)?.label}</span>}
+              <span className="rounded-full bg-white/7 px-3 py-1 text-[10px] font-bold text-zinc-300">البحث: {data.searchProvider === "serper" ? "Serper" : "Tavily"}</span>
               <span className="rounded-full bg-white/7 px-3 py-1 text-[10px] text-zinc-300">{allowShortClips ? "المقاطع مسموحة" : "أفلام كاملة فقط"}</span>
               <span className="flex items-center gap-1 text-[11px] text-zinc-500"><ShieldCheck size={14} className="text-rose-300" /> مصادر قانونية فقط</span>
             </div>

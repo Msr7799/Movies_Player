@@ -16,16 +16,16 @@ It provides a responsive cinematic interface with quality selection, playback sp
 - Remember playback progress and subtitle appearance in the browser.
 - Search the movie library.
 - Understand movie names in Arabic, English, and other languages with Gemini.
-- Run deep Tavily searches and return up to five verified legal sources.
+- Switch between Tavily deep search and Serper Google search, returning up to five verified legal sources.
 - Exclude trailers, excerpts, scenes, and other short videos by default.
 - Optionally allow short clips and trailers from the search filters.
 - Use a responsive Arabic-first interface on desktop and mobile.
 
 ## AI Movie Discovery
 
-The **AI Movie Search** panel accepts a movie or video title in any language. After at least three characters, a debounced Gemini-powered suggestions list offers up to six likely titles without replacing the user's text automatically. Gemini then identifies the selected title, original title, likely year, and useful aliases. Tavily runs up to three advanced searches in parallel, and Gemini ranks the real Tavily results so the interface shows a maximum of five legal sources.
+The **AI Movie Search** panel accepts a movie or video title in any language. After at least three characters, a debounced Gemini-powered suggestions list offers up to six likely titles without replacing the user's text automatically. Gemini then identifies the selected title, original title, likely year, and useful aliases. The viewer can switch between Tavily and Serper before searching; the selected provider runs the web searches and Gemini ranks the real results so the interface shows a maximum of five legal sources.
 
-The viewer can filter by movie language or cinema—including Arabic, English, Indian, Turkish, Korean, Japanese, French, Spanish, and other world cinema—and can request a preferred subtitle language. These preferences influence Gemini title disambiguation, Tavily queries, and final result ranking. Subtitle availability is never invented; when a provider does not expose clear evidence, the viewer is told to verify availability on that service because languages can vary by account region.
+The viewer can filter by movie language or cinema—including Arabic, English, Indian, Turkish, Korean, Japanese, French, Spanish, and other world cinema—and can request a preferred subtitle language. These preferences influence Gemini title disambiguation, the selected search provider's queries, and final result ranking. Subtitle availability is never invented; when a provider does not expose clear evidence, the viewer is told to verify availability on that service because languages can vary by account region.
 
 Search is restricted to known legitimate platforms, official video services, licensed streaming availability pages, and public-domain archives. The API does not search torrent sites, piracy mirrors, access bypasses, or unauthorized streaming servers.
 
@@ -35,11 +35,12 @@ Create a local `.env` file using `.env.example`:
 
 ```bash
 TAVILY_API_KEY=your_server_key
+SERPER_API_KEY=your_server_key
 GEMINI_API_KEY=your_server_key
 GEMINI_AUTO_SUGGESTED_API_KEY=your_second_server_key
 ```
 
-These values are read only by server-side routes. `/api/discover` uses `GEMINI_API_KEY`, while `/api/suggest` exclusively uses `GEMINI_AUTO_SUGGESTED_API_KEY` so typing suggestions do not consume the main search key's quota. Never rename them with a `NEXT_PUBLIC_` prefix. On Vercel, add the same variables under **Project Settings → Environment Variables** and redeploy.
+These values are read only by server-side routes. `/api/discover` uses `GEMINI_API_KEY` plus either `TAVILY_API_KEY` or `SERPER_API_KEY`, based on the switch in the search panel. `/api/suggest` exclusively uses `GEMINI_AUTO_SUGGESTED_API_KEY` so typing suggestions do not consume the main search key's quota. Never rename them with a `NEXT_PUBLIC_` prefix. On Vercel, add the same variables under **Project Settings → Environment Variables** and redeploy.
 
 Direct media files and supported YouTube, Vimeo, or Internet Archive results can play inside Cinema Player. Other services open their official page because subscription, region, sign-in, DRM, and embedding rules are controlled by each provider.
 
@@ -257,3 +258,11 @@ public/
 ## Responsible Use
 
 Only play or host media that you own or are authorized to access. Direct-link playback is subject to the source server's permissions, browser security rules, and applicable copyright laws.
+
+## HLS Playback
+
+The URL dialog also accepts authorized HLS playlists ending in `.m3u8`. Cinema Player loads `hls.js` in the browser when native HLS playback is unavailable, reads the master playlist, exposes discovered quality levels, and shows technical media details such as resolution, bitrate, codecs, duration, source host, and playback errors.
+
+You can optionally add a remote thumbnail URL when opening a movie URL. The thumbnail, movie metadata, current playback position, and HLS details are stored in the browser's **Recently Watched** history. History can be searched from the sidebar and cleared at any time.
+
+Some HLS URLs are signed or temporary. If a token expires, or if the media server does not allow the Cinema Player origin through CORS, the player will show the network error but will not bypass the source server's access controls.

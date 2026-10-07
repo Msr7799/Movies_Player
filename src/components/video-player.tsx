@@ -4,14 +4,15 @@ import Image from "next/image";
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Captions, Check, Download, FastForward, Gauge, Maximize,
+  Captions, Check, Download, FastForward, Gauge, Info, Maximize,
   Minimize, Pause, PictureInPicture, Play, Rewind, Settings, Upload,
   Volume1, Volume2, VolumeX, X, ZoomIn,
 } from "lucide-react";
-import type { Movie, SubtitleTrack } from "@/lib/media-types";
+import type { MediaDetails, Movie, PlaybackHistorySnapshot, SubtitleTrack } from "@/lib/media-types";
+import { loadHlsLibrary, normalizeHlsLevels, type HlsInstanceLike, type HlsLevelInfo } from "@/lib/hls-runtime";
 
 type Cue = { start: number; end: number; text: string };
-type SettingsPanel = "main" | "quality" | "speed" | "subtitles" | "appearance";
+type SettingsPanel = "main" | "quality" | "speed" | "subtitles" | "appearance" | "details";
 type SubtitleStyle = {
   size: number;
   color: string;
@@ -64,11 +65,32 @@ function parseSubtitles(content: string): Cue[] {
   });
 }
 
-export function VideoPlayer({ movie, onOpenFiles }: { movie: Movie; onOpenFiles: () => void }) {
+function isHlsUrl(url: string) {
+  return /\.m3u8(?:$|[?#])/i.test(url);
+}
+
+function bitrateLabel(value?: number) {
+  if (!value) return "—";
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)} Mbps`;
+  return `${Math.round(value / 1000)} Kbps`;
+}
+
+function sourceHost(url: string) {
+  try { return new URL(url).host; } catch { return "—"; }
+}
+
+export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate }: {
+  movie: Movie;
+  onOpenFiles: () => void;
+  onHistoryUpdate?: (snapshot: PlaybackHistorySnapshot) => void;
+}) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const qualityState = useRef({ time: 0, playing: false });
+  const hlsRef = useRef<HlsInstanceLike | null>(null);
+  const historySecondRef = useRef(-1);
+
   const [sourceUrl, setSourceUrl] = useState(() => movie.sources[0]?.url ?? "");
   const [embedStarted, setEmbedStarted] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -93,12 +115,57 @@ export function VideoPlayer({ movie, onOpenFiles }: { movie: Movie; onOpenFiles:
     } catch { return DEFAULT_STYLE; }
   });
   const [statusText, setStatusText] = useState("");
+  const [hlsLevels, setHlsLevels] = useState<HlsLevelInfo[]>([]);
+  const [hlsLevel, setHlsLevel] = useState(-1);
+  const [hlsAuto, setHlsAuto] = useState(true);
+  const [hlsError, setHlsError] = useState("");
+  const [hlsEngine, setHlsEngine] = useState<"hls.js" | "native" | "">("");
+  const [videoResolution, setVideoResolution] = useState("");
 
   const activeSource = movie.sources.find((source) => source.url === sourceUrl) ?? movie.sources[0];
+  const isHls = activeSource?.kind === "hls" || isHlsUrl(sourceUrl);
+  const activeHlsLevel = hlsLevel >= 0 ? hlsLevels.find((level) => level.index === hlsLevel) : undefined;
+  const qualityText = isHls
+    ? hlsAuto
+      ? `تلقائي${activeHlsLevel ? ` • ${activeHlsLevel.label}` : ""}`
+      : activeHlsLevel?.label ?? "HLS"
+    : activeSource?.quality ?? "أصلي";
+
   const activeCue = useMemo(
     () => subtitleTrack ? cues.find((cue) => currentTime >= cue.start && currentTime <= cue.end) : undefined,
     [cues, currentTime, subtitleTrack],
   );
+
+  const mediaDetails = useMemo<MediaDetails>(() => {
+    const level = activeHlsLevel;
+    return {
+      type: activeSource?.kind === "embed" ? "Embed" : isHls ? "HLS" : "Direct",
+      sourceUrl,
+      currentQuality: qualityText,
+      resolution: level?.width && level?.height ? `${level.width}×${level.height}` : videoResolution || undefined,
+      bitrate: level?.bitrate,
+      codecs: level?.codecs,
+      duration,
+      availableQualities: isHls ? hlsLevels.map((item) => ({
+        label: item.label,
+        width: item.width,
+        height: item.height,
+        bitrate: item.bitrate,
+        codecs: item.codecs,
+      })) : movie.sources.map((source) => ({ label: source.quality })),
+      error: hlsError || undefined,
+    };
+  }, [activeHlsLevel, activeSource?.kind, duration, hlsError, hlsLevels, isHls, movie.sources, qualityText, sourceUrl, videoResolution]);
+
+  const emitHistory = useCallback((progress?: number, forcedDuration?: number) => {
+    if (!onHistoryUpdate || !sourceUrl || sourceUrl.startsWith("blob:")) return;
+    onHistoryUpdate({
+      progress: progress ?? videoRef.current?.currentTime ?? currentTime,
+      duration: forcedDuration ?? videoRef.current?.duration ?? duration,
+      watchedAt: Date.now(),
+      details: mediaDetails,
+    });
+  }, [currentTime, duration, mediaDetails, onHistoryUpdate, sourceUrl]);
 
   useEffect(() => {
     localStorage.setItem("cinema-subtitle-style", JSON.stringify(subtitleStyle));
@@ -114,9 +181,92 @@ export function VideoPlayer({ movie, onOpenFiles }: { movie: Movie; onOpenFiles:
     return () => { cancelled = true; };
   }, [subtitleTrack]);
 
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !sourceUrl || activeSource?.kind === "embed") return;
+
+    let cancelled = false;
+    hlsRef.current?.destroy();
+    hlsRef.current = null;
+    setHlsLevels([]);
+    setHlsLevel(-1);
+    setHlsAuto(true);
+    setHlsError("");
+    setHlsEngine("");
+    setVideoResolution("");
+
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+
+    if (!isHls) {
+      video.src = sourceUrl;
+      video.load();
+      return;
+    }
+
+    void loadHlsLibrary().then((Hls) => {
+      if (cancelled) return;
+
+      if (Hls?.isSupported()) {
+        const hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: true,
+          backBufferLength: 90,
+        });
+        hlsRef.current = hls;
+        setHlsEngine("hls.js");
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          if (cancelled) return;
+          const levels = normalizeHlsLevels(hls.levels || []);
+          setHlsLevels(levels);
+          setHlsAuto(true);
+          setHlsError("");
+        });
+
+        hls.on(Hls.Events.LEVEL_SWITCHED, (_event, rawData) => {
+          const data = rawData as { level?: number };
+          if (typeof data.level === "number") setHlsLevel(data.level);
+        });
+
+        hls.on(Hls.Events.ERROR, (_event, rawData) => {
+          const data = rawData as { fatal?: boolean; type?: string; details?: string; reason?: string; response?: { code?: number } };
+          const code = data.response?.code;
+          const reason = data.reason || data.details || data.type || "خطأ غير معروف";
+          if (data.fatal) {
+            setHlsError(`${code ? `HTTP ${code} • ` : ""}${reason}`);
+            if (Hls.ErrorTypes?.MEDIA_ERROR && data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+              try { hls.recoverMediaError(); } catch { /* noop */ }
+            }
+          }
+        });
+
+        hls.loadSource(sourceUrl);
+        hls.attachMedia(video);
+        return;
+      }
+
+      if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        setHlsEngine("native");
+        video.src = sourceUrl;
+        video.load();
+        return;
+      }
+
+      setHlsError("المتصفح لا يدعم HLS وتعذر تحميل مكتبة hls.js.");
+    });
+
+    return () => {
+      cancelled = true;
+      hlsRef.current?.destroy();
+      hlsRef.current = null;
+    };
+  }, [activeSource?.kind, isHls, sourceUrl]);
+
   const showStatus = useCallback((text: string) => {
     setStatusText(text);
-    window.setTimeout(() => setStatusText(""), 700);
+    window.setTimeout(() => setStatusText(""), 900);
   }, []);
 
   const togglePlay = useCallback(() => {
@@ -196,24 +346,60 @@ export function VideoPlayer({ movie, onOpenFiles }: { movie: Movie; onOpenFiles:
     setSourceUrl(url);
   }
 
+  function changeHlsLevel(index: number | null) {
+    const hls = hlsRef.current;
+    if (!hls) return;
+    if (index === null) {
+      hls.currentLevel = -1;
+      setHlsAuto(true);
+      showStatus("الجودة: تلقائي");
+      return;
+    }
+    hls.currentLevel = index;
+    setHlsAuto(false);
+    const level = hlsLevels.find((item) => item.index === index);
+    showStatus(`الجودة: ${level?.label ?? index}`);
+  }
+
   function onLoadedMetadata() {
     const video = videoRef.current;
     if (!video) return;
     setDuration(video.duration || 0);
+    setVideoResolution(video.videoWidth && video.videoHeight ? `${video.videoWidth}×${video.videoHeight}` : "");
     const savedKey = `cinema-progress:${movie.id}`;
     const remembered = Number(localStorage.getItem(savedKey) ?? 0);
     const resumeAt = qualityState.current.time || (remembered < video.duration - 20 ? remembered : 0);
     if (resumeAt > 0) video.currentTime = resumeAt;
     if (qualityState.current.playing) void video.play();
     qualityState.current = { time: 0, playing: false };
+    emitHistory(resumeAt, video.duration || 0);
   }
 
   function onTimeUpdate() {
     const video = videoRef.current;
     if (!video) return;
     setCurrentTime(video.currentTime);
-    if (Math.floor(video.currentTime) % 5 === 0) {
+    const second = Math.floor(video.currentTime);
+    if (second % 5 === 0 && second !== historySecondRef.current) {
+      historySecondRef.current = second;
       localStorage.setItem(`cinema-progress:${movie.id}`, String(video.currentTime));
+      emitHistory(video.currentTime, video.duration || 0);
+    }
+  }
+
+  function startEmbed() {
+    setEmbedStarted(true);
+    if (onHistoryUpdate && sourceUrl && !sourceUrl.startsWith("blob:")) {
+      onHistoryUpdate({
+        progress: 0,
+        duration: 0,
+        watchedAt: Date.now(),
+        details: {
+          type: "Embed",
+          sourceUrl,
+          currentQuality: activeSource?.quality,
+        },
+      });
     }
   }
 
@@ -240,9 +426,9 @@ export function VideoPlayer({ movie, onOpenFiles }: { movie: Movie; onOpenFiles:
         className={`player-shadow relative aspect-video min-h-[190px] overflow-hidden bg-black sm:min-h-[260px] ${isFullscreen ? "rounded-none" : "rounded-2xl sm:rounded-3xl"}`}
       >
         {!embedStarted ? (
-          <button className="group absolute inset-0 size-full overflow-hidden text-white" onClick={() => setEmbedStarted(true)} aria-label={`تشغيل ${movie.title}`}>
+          <button className="group absolute inset-0 size-full overflow-hidden text-white" onClick={startEmbed} aria-label={`تشغيل ${movie.title}`}>
             {movie.poster ? (
-              <Image src={movie.poster} alt={`ملصق ${movie.title}`} fill priority sizes="(max-width: 1024px) 100vw, 80vw" className="object-cover transition duration-500 group-hover:scale-[1.02]" />
+              <Image src={movie.poster} alt={`ملصق ${movie.title}`} fill priority sizes="(max-width: 1024px) 100vw, 80vw" unoptimized className="object-cover transition duration-500 group-hover:scale-[1.02]" />
             ) : (
               <span className="absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,#111d2e,transparent_45%)]" />
             )}
@@ -252,7 +438,7 @@ export function VideoPlayer({ movie, onOpenFiles }: { movie: Movie; onOpenFiles:
             </span>
             <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent px-4 pb-3 pt-12 text-right sm:px-6 sm:pb-5 sm:pt-16">
               <strong className="block text-base sm:text-xl">{movie.title}</strong>
-              <span className="mt-1 block text-xs text-zinc-300">اضغط لتشغيل الفيلم عبر مشغّل VK</span>
+              <span className="mt-1 block text-xs text-zinc-300">اضغط لتشغيل المشغّل المضمّن</span>
             </span>
           </button>
         ) : (
@@ -287,19 +473,30 @@ export function VideoPlayer({ movie, onOpenFiles }: { movie: Movie; onOpenFiles:
     >
       <video
         ref={videoRef}
-        src={sourceUrl}
         poster={movie.poster}
         className="size-full transition-transform duration-300"
         style={{ objectFit: fit, transform: `scale(${zoom / 100})` }}
         playsInline
         onClick={togglePlay}
-        onPlay={() => { setIsPlaying(true); showControls(); }}
+        onPlay={() => { setIsPlaying(true); showControls(); emitHistory(); }}
         onPause={() => { setIsPlaying(false); setControlsVisible(true); }}
-        onEnded={() => setIsPlaying(false)}
+        onEnded={() => { setIsPlaying(false); emitHistory(duration, duration); }}
         onLoadedMetadata={onLoadedMetadata}
         onDurationChange={(event) => setDuration(event.currentTarget.duration || 0)}
         onTimeUpdate={onTimeUpdate}
+        onResize={(event) => {
+          const target = event.currentTarget;
+          if (target.videoWidth && target.videoHeight) setVideoResolution(`${target.videoWidth}×${target.videoHeight}`);
+        }}
       />
+
+      {hlsError && (
+        <div className="absolute inset-x-4 top-4 z-30 rounded-xl border border-red-400/25 bg-red-950/80 p-3 text-right text-xs leading-6 text-red-100 backdrop-blur-md" dir="rtl">
+          <strong className="block text-sm">تعذر تحميل HLS</strong>
+          <span className="text-red-200/80">{hlsError}</span>
+          <span className="mt-1 block text-[10px] text-red-200/60">قد يكون الرابط منتهي الصلاحية أو السيرفر يمنع CORS/Origin من هذا الموقع.</span>
+        </div>
+      )}
 
       <div className="pointer-events-none absolute inset-x-0 top-5 flex justify-center">
         {statusText && <span className="rounded-full bg-black/70 px-4 py-2 text-sm font-bold backdrop-blur-md">{statusText}</span>}
@@ -319,7 +516,7 @@ export function VideoPlayer({ movie, onOpenFiles }: { movie: Movie; onOpenFiles:
         </div>
       )}
 
-      {!isPlaying && (
+      {!isPlaying && !hlsError && (
         <button onClick={togglePlay} className="navy-glass absolute left-1/2 top-1/2 z-10 grid size-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full text-white transition hover:scale-110 hover:brightness-125 sm:size-20" aria-label="تشغيل">
           <Play className="mr-1 fill-white" size={30} />
         </button>
@@ -355,18 +552,35 @@ export function VideoPlayer({ movie, onOpenFiles }: { movie: Movie; onOpenFiles:
           <span className="mr-1 hidden text-[10px] text-zinc-300 min-[380px]:inline sm:text-xs" dir="ltr">{formatTime(currentTime)} / {formatTime(duration)}</span>
 
           <div className="ml-auto flex items-center gap-0.5 sm:gap-1" dir="ltr">
-            {activeSource && <a className="control-button hidden sm:inline-flex" href={activeSource.url} download aria-label="تنزيل الفيلم"><Download size={19} /></a>}
+            {activeSource && !isHls && <a className="control-button hidden sm:inline-flex" href={activeSource.url} download aria-label="تنزيل الفيلم"><Download size={19} /></a>}
             <button className={`control-button ${subtitleTrack ? "text-rose-400" : ""}`} onClick={() => setSubtitleTrack((track) => track ? null : (movie.subtitles[0] ?? null))} aria-label="الترجمة"><Captions size={21} /></button>
             <button className="control-button hidden sm:inline-flex" onClick={togglePiP} aria-label="صورة داخل صورة"><PictureInPicture size={19} /></button>
             <div className="relative">
               <button className={`control-button ${settingsOpen ? "bg-white/15" : ""}`} onClick={() => { setSettingsOpen((value) => !value); setPanel("main"); }} aria-label="الإعدادات"><Settings size={20} /></button>
               {settingsOpen && (
                 <SettingsMenu
-                  panel={panel} setPanel={setPanel} movie={movie} sourceUrl={sourceUrl}
-                  changeQuality={changeQuality} speed={speed} setSpeed={(value) => { setSpeed(value); if (videoRef.current) videoRef.current.playbackRate = value; }}
-                  zoom={zoom} setZoom={setZoom} fit={fit} setFit={setFit}
-                  subtitleTrack={subtitleTrack} setSubtitleTrack={setSubtitleTrack}
-                  subtitleStyle={subtitleStyle} setSubtitleStyle={setSubtitleStyle}
+                  panel={panel}
+                  setPanel={setPanel}
+                  movie={movie}
+                  sourceUrl={sourceUrl}
+                  changeQuality={changeQuality}
+                  isHls={isHls}
+                  hlsLevels={hlsLevels}
+                  hlsLevel={hlsLevel}
+                  hlsAuto={hlsAuto}
+                  changeHlsLevel={changeHlsLevel}
+                  speed={speed}
+                  setSpeed={(value) => { setSpeed(value); if (videoRef.current) videoRef.current.playbackRate = value; }}
+                  zoom={zoom}
+                  setZoom={setZoom}
+                  fit={fit}
+                  setFit={setFit}
+                  subtitleTrack={subtitleTrack}
+                  setSubtitleTrack={setSubtitleTrack}
+                  subtitleStyle={subtitleStyle}
+                  setSubtitleStyle={setSubtitleStyle}
+                  details={mediaDetails}
+                  hlsEngine={hlsEngine}
                   onClose={() => setSettingsOpen(false)}
                 />
               )}
@@ -380,26 +594,50 @@ export function VideoPlayer({ movie, onOpenFiles }: { movie: Movie; onOpenFiles:
 }
 
 function SettingsMenu(props: {
-  panel: SettingsPanel; setPanel: (panel: SettingsPanel) => void; movie: Movie;
-  sourceUrl: string; changeQuality: (url: string) => void; speed: number; setSpeed: (speed: number) => void;
-  zoom: number; setZoom: (zoom: number) => void; fit: "contain" | "cover"; setFit: (fit: "contain" | "cover") => void;
-  subtitleTrack: SubtitleTrack | null; setSubtitleTrack: (track: SubtitleTrack | null) => void;
-  subtitleStyle: SubtitleStyle; setSubtitleStyle: (style: SubtitleStyle) => void; onClose: () => void;
+  panel: SettingsPanel;
+  setPanel: (panel: SettingsPanel) => void;
+  movie: Movie;
+  sourceUrl: string;
+  changeQuality: (url: string) => void;
+  isHls: boolean;
+  hlsLevels: HlsLevelInfo[];
+  hlsLevel: number;
+  hlsAuto: boolean;
+  changeHlsLevel: (index: number | null) => void;
+  speed: number;
+  setSpeed: (speed: number) => void;
+  zoom: number;
+  setZoom: (zoom: number) => void;
+  fit: "contain" | "cover";
+  setFit: (fit: "contain" | "cover") => void;
+  subtitleTrack: SubtitleTrack | null;
+  setSubtitleTrack: (track: SubtitleTrack | null) => void;
+  subtitleStyle: SubtitleStyle;
+  setSubtitleStyle: (style: SubtitleStyle) => void;
+  details: MediaDetails;
+  hlsEngine: string;
+  onClose: () => void;
 }) {
   const { panel, setPanel } = props;
+  const currentLevel = props.hlsLevels.find((level) => level.index === props.hlsLevel);
+  const currentQuality = props.isHls
+    ? props.hlsAuto ? `تلقائي${currentLevel ? ` • ${currentLevel.label}` : ""}` : currentLevel?.label ?? "HLS"
+    : props.movie.sources.find((source) => source.url === props.sourceUrl)?.quality ?? "أصلي";
+
   return (
-    <div className="glass fixed inset-x-3 bottom-20 z-50 max-h-[min(70dvh,420px)] overflow-hidden rounded-2xl text-right text-white shadow-2xl sm:absolute sm:inset-x-auto sm:bottom-14 sm:left-0 sm:z-auto sm:w-[min(310px,calc(100vw-32px))]" dir="rtl" onDoubleClick={(event) => event.stopPropagation()}>
+    <div className="glass fixed inset-x-3 bottom-20 z-50 max-h-[min(76dvh,500px)] overflow-hidden rounded-2xl text-right text-white shadow-2xl sm:absolute sm:inset-x-auto sm:bottom-14 sm:left-0 sm:z-auto sm:w-[min(340px,calc(100vw-32px))]" dir="rtl" onDoubleClick={(event) => event.stopPropagation()}>
       <div className="flex h-12 items-center border-b border-white/8 px-3">
         {panel !== "main" && <button onClick={() => setPanel(panel === "appearance" ? "subtitles" : "main")} className="rounded-lg px-2 py-1 text-lg text-zinc-400 hover:bg-white/10">‹</button>}
         <span className="px-2 text-xs font-bold">{panelTitle(panel)}</span>
         <button className="mr-auto rounded-lg p-1.5 text-zinc-500 hover:bg-white/10" onClick={props.onClose}><X size={16} /></button>
       </div>
-      <div className="max-h-[360px] overflow-y-auto p-2">
+      <div className="max-h-[430px] overflow-y-auto p-2">
         {panel === "main" && (
           <>
-            <SettingRow icon={<Gauge size={17} />} label="الجودة" value={props.movie.sources.find((source) => source.url === props.sourceUrl)?.quality ?? "أصلي"} onClick={() => setPanel("quality")} />
+            <SettingRow icon={<Gauge size={17} />} label="الجودة" value={currentQuality} onClick={() => setPanel("quality")} />
             <SettingRow icon={<FastForward size={17} />} label="سرعة التشغيل" value={`${props.speed}×`} onClick={() => setPanel("speed")} />
             <SettingRow icon={<Captions size={17} />} label="الترجمة" value={props.subtitleTrack?.label ?? "إيقاف"} onClick={() => setPanel("subtitles")} />
+            <SettingRow icon={<Info size={17} />} label="تفاصيل الوسائط" value={props.details.type} onClick={() => setPanel("details")} />
             <div className="mt-2 border-t border-white/8 pt-2">
               <div className="mb-2 flex items-center gap-2 px-2 text-xs font-bold"><ZoomIn size={16} className="text-rose-400" /> تكبير الصورة <span className="mr-auto text-zinc-500">{props.zoom}%</span></div>
               <input className="w-full" type="range" min={100} max={160} step={5} value={props.zoom} onChange={(event) => props.setZoom(Number(event.target.value))} />
@@ -410,12 +648,30 @@ function SettingsMenu(props: {
             </div>
           </>
         )}
-        {panel === "quality" && props.movie.sources.map((source) => (
+
+        {panel === "quality" && props.isHls && (
+          <>
+            <ChoiceRow label="تلقائي (Adaptive)" active={props.hlsAuto} onClick={() => { props.changeHlsLevel(null); setPanel("main"); }} />
+            {props.hlsLevels.length === 0 && <div className="px-3 py-3 text-xs leading-6 text-zinc-500">بانتظار قراءة Master Playlist واكتشاف الجودات...</div>}
+            {[...props.hlsLevels].sort((a, b) => (b.height || 0) - (a.height || 0)).map((level) => (
+              <ChoiceRow
+                key={level.index}
+                label={`${level.label}${level.bitrate ? ` • ${bitrateLabel(level.bitrate)}` : ""}`}
+                active={!props.hlsAuto && level.index === props.hlsLevel}
+                onClick={() => { props.changeHlsLevel(level.index); setPanel("main"); }}
+              />
+            ))}
+          </>
+        )}
+
+        {panel === "quality" && !props.isHls && props.movie.sources.map((source) => (
           <ChoiceRow key={source.url} label={source.quality} active={source.url === props.sourceUrl} onClick={() => { props.changeQuality(source.url); setPanel("main"); }} />
         ))}
+
         {panel === "speed" && speeds.map((value) => (
           <ChoiceRow key={value} label={value === 1 ? "عادي" : `${value}×`} active={value === props.speed} onClick={() => { props.setSpeed(value); setPanel("main"); }} />
         ))}
+
         {panel === "subtitles" && (
           <>
             <ChoiceRow label="إيقاف الترجمة" active={!props.subtitleTrack} onClick={() => props.setSubtitleTrack(null)} />
@@ -423,10 +679,54 @@ function SettingsMenu(props: {
             <button onClick={() => setPanel("appearance")} className="mt-2 flex w-full items-center gap-3 rounded-xl border-t border-white/8 px-3 py-3 text-xs font-bold text-rose-300 hover:bg-white/5"><Settings size={16} /> تخصيص شكل الترجمة <span className="mr-auto">‹</span></button>
           </>
         )}
+
         {panel === "appearance" && <SubtitleAppearance style={props.subtitleStyle} onChange={props.setSubtitleStyle} />}
+        {panel === "details" && <MediaDetailsPanel details={props.details} hlsEngine={props.hlsEngine} poster={props.movie.poster} />}
       </div>
     </div>
   );
+}
+
+function MediaDetailsPanel({ details, hlsEngine, poster }: { details: MediaDetails; hlsEngine: string; poster?: string }) {
+  return (
+    <div className="space-y-2 p-1 text-[11px]">
+      {poster && (
+        <div className="relative mb-3 aspect-video overflow-hidden rounded-xl bg-black">
+          <Image src={poster} alt="الصورة المصغرة" fill sizes="320px" unoptimized className="object-cover" />
+        </div>
+      )}
+      <DetailRow label="النوع" value={details.type} />
+      {details.type === "HLS" && <DetailRow label="المحرّك" value={hlsEngine || "جارِ التحميل"} />}
+      <DetailRow label="الجودة الحالية" value={details.currentQuality || "—"} />
+      <DetailRow label="الدقة" value={details.resolution || "—"} />
+      <DetailRow label="Bitrate" value={bitrateLabel(details.bitrate)} />
+      <DetailRow label="Codec" value={details.codecs || "—"} />
+      <DetailRow label="المدة" value={details.duration ? formatTime(details.duration) : "—"} />
+      <DetailRow label="السيرفر" value={sourceHost(details.sourceUrl)} ltr />
+      <div className="rounded-xl bg-black/25 p-2">
+        <div className="mb-1 text-zinc-500">الرابط</div>
+        <div className="break-all text-left font-mono text-[9px] leading-5 text-zinc-300" dir="ltr">{details.sourceUrl}</div>
+      </div>
+      {details.availableQualities && details.availableQualities.length > 0 && (
+        <div className="rounded-xl bg-black/25 p-2">
+          <div className="mb-2 text-zinc-500">الجودات المتاحة ({details.availableQualities.length})</div>
+          <div className="space-y-1">
+            {details.availableQualities.map((quality, index) => (
+              <div key={`${quality.label}-${index}`} className="flex justify-between gap-3 rounded-lg bg-white/[.035] px-2 py-1.5">
+                <span>{quality.label}</span>
+                <span className="text-zinc-500" dir="ltr">{bitrateLabel(quality.bitrate)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {details.error && <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-2 text-red-200">{details.error}</div>}
+    </div>
+  );
+}
+
+function DetailRow({ label, value, ltr = false }: { label: string; value: string; ltr?: boolean }) {
+  return <div className="flex items-start justify-between gap-4 rounded-xl bg-white/[.035] px-3 py-2"><span className="text-zinc-500">{label}</span><span className="max-w-[65%] text-left text-zinc-200" dir={ltr ? "ltr" : undefined}>{value}</span></div>;
 }
 
 function SettingRow({ icon, label, value, onClick }: { icon: React.ReactNode; label: string; value: string; onClick: () => void }) {
@@ -460,7 +760,14 @@ function RangeSetting({ label, value, min, max, valueNumber, onChange }: { label
 }
 
 function panelTitle(panel: SettingsPanel) {
-  return { main: "إعدادات المشغّل", quality: "الجودة", speed: "سرعة التشغيل", subtitles: "الترجمة", appearance: "تخصيص الترجمة" }[panel];
+  return {
+    main: "إعدادات المشغّل",
+    quality: "الجودة",
+    speed: "سرعة التشغيل",
+    subtitles: "الترجمة",
+    appearance: "تخصيص الترجمة",
+    details: "تفاصيل الوسائط",
+  }[panel];
 }
 
 function hexWithAlpha(hex: string, opacity: number) {

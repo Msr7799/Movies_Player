@@ -4,13 +4,23 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import {
   Clapperboard, FolderOpen, History, Library, Link2, Menu, Play, Search,
-  Sparkles, Upload, X,
+  Sparkles, Trash2, X,
 } from "lucide-react";
-import type { DiscoveryResult, Movie, SubtitleTrack } from "@/lib/media-types";
+import type { DiscoveryResult, MediaDetails, Movie, PlaybackHistorySnapshot, SubtitleTrack } from "@/lib/media-types";
 import { MovieDiscovery } from "./movie-discovery";
 import { VideoPlayer } from "./video-player";
 
 type LibraryResponse = { movies: Movie[] };
+type SidebarMode = "library" | "history";
+type HistoryEntry = {
+  movie: Movie;
+  progress: number;
+  duration: number;
+  watchedAt: number;
+  details: MediaDetails;
+};
+
+const HISTORY_KEY = "cinema-playback-history-v2";
 
 const VEER_ZAARA_MOVIE: Movie = {
   id: "veer-zaara-2004",
@@ -25,15 +35,32 @@ const VEER_ZAARA_MOVIE: Movie = {
   subtitles: [],
 };
 
+function isRemotePersistable(movie: Movie) {
+  return movie.sources.some((source) => !source.url.startsWith("blob:"));
+}
+
+function readHistory(): HistoryEntry[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]") as HistoryEntry[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 export function CinemaApp() {
   const [movies, setMovies] = useState<Movie[]>([VEER_ZAARA_MOVIE]);
   const [activeMovie, setActiveMovie] = useState<Movie>(VEER_ZAARA_MOVIE);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [sidebarMode, setSidebarMode] = useState<SidebarMode>("library");
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [urlDialogOpen, setUrlDialogOpen] = useState(false);
   const [urlValue, setUrlValue] = useState("");
   const [urlTitle, setUrlTitle] = useState("");
+  const [urlPoster, setUrlPoster] = useState("");
   const [urlError, setUrlError] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
   const objectUrls = useRef<string[]>([]);
@@ -42,19 +69,64 @@ export function CinemaApp() {
     try {
       const response = await fetch("/api/library", { cache: "no-store" });
       const data = (await response.json()) as LibraryResponse;
-      setMovies([VEER_ZAARA_MOVIE, ...data.movies.filter((movie) => movie.id !== VEER_ZAARA_MOVIE.id)]);
+      setMovies((current) => {
+        const merged = [VEER_ZAARA_MOVIE, ...data.movies, ...current];
+        const unique = new Map<string, Movie>();
+        for (const movie of merged) if (!unique.has(movie.id)) unique.set(movie.id, movie);
+        return [...unique.values()];
+      });
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { void loadLibrary(); }, [loadLibrary]);
+  useEffect(() => {
+    setHistory(readHistory());
+    void loadLibrary();
+  }, [loadLibrary]);
+
   useEffect(() => () => objectUrls.current.forEach(URL.revokeObjectURL), []);
 
   const filteredMovies = useMemo(
     () => movies.filter((movie) => movie.title.toLowerCase().includes(query.toLowerCase())),
     [movies, query],
   );
+
+  const posterPreview = useMemo(() => {
+    try {
+      if (!urlPoster.trim()) return "";
+      const value = new URL(urlPoster.trim());
+      return ["http:", "https:"].includes(value.protocol) ? value.href : "";
+    } catch {
+      return "";
+    }
+  }, [urlPoster]);
+
+  const filteredHistory = useMemo(
+    () => history.filter((entry) => {
+      const text = `${entry.movie.title} ${entry.details.currentQuality || ""} ${entry.details.sourceUrl}`.toLowerCase();
+      return text.includes(query.toLowerCase());
+    }),
+    [history, query],
+  );
+
+  const updateHistory = useCallback((movie: Movie, snapshot: PlaybackHistorySnapshot) => {
+    if (!isRemotePersistable(movie)) return;
+
+    setHistory((current) => {
+      const nextEntry: HistoryEntry = { movie, ...snapshot };
+      const next = [nextEntry, ...current.filter((item) => item.movie.id !== movie.id)]
+        .sort((a, b) => b.watchedAt - a.watchedAt)
+        .slice(0, 60);
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  function clearHistory() {
+    setHistory([]);
+    localStorage.removeItem(HISTORY_KEY);
+  }
 
   function openLocalFiles(files: FileList | null) {
     if (!files?.length) return;
@@ -70,12 +142,14 @@ export function CinemaApp() {
         objectUrls.current.push(url);
         return { label: file.name, language: "local", url };
       });
-    setActiveMovie({
-      id: `local-${video.name}`,
+    const movie: Movie = {
+      id: `local-${video.name}-${Date.now()}`,
       title: video.name.replace(/\.[^.]+$/, ""),
-      sources: [{ quality: "أصلي", url: videoUrl, size: video.size }],
+      sources: [{ quality: "أصلي", url: videoUrl, size: video.size, kind: "video" }],
       subtitles,
-    });
+    };
+    setMovies((current) => [movie, ...current]);
+    setActiveMovie(movie);
     setSidebarOpen(false);
   }
 
@@ -86,23 +160,39 @@ export function CinemaApp() {
     let parsed: URL;
     try {
       parsed = new URL(urlValue.trim());
-      if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error("unsupported protocol");
+      if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("unsupported protocol");
     } catch {
       setUrlError("أدخل رابط HTTP أو HTTPS صحيحًا.");
       return;
     }
 
+    let poster: string | undefined;
+    if (urlPoster.trim()) {
+      try {
+        const parsedPoster = new URL(urlPoster.trim());
+        if (!["http:", "https:"].includes(parsedPoster.protocol)) throw new Error("unsupported poster protocol");
+        poster = parsedPoster.href;
+      } catch {
+        setUrlError("رابط الصورة المصغرة غير صحيح.");
+        return;
+      }
+    }
+
     const isVkEmbed = /(^|\.)vk\.com$/i.test(parsed.hostname) && parsed.pathname.endsWith("/video_ext.php");
-    const filename = decodeURIComponent(parsed.pathname.split("/").pop() ?? "").replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim();
+    const isHls = /\.m3u8$/i.test(parsed.pathname) || /\.m3u8(?:\?|#)/i.test(parsed.href);
+    const filename = decodeURIComponent(parsed.pathname.split("/").pop() ?? "")
+      .replace(/\.[^.]+$/, "")
+      .replace(/[-_]+/g, " ")
+      .trim();
+
+    const kind = isVkEmbed ? "embed" : isHls ? "hls" : "video";
+    const quality = isVkEmbed ? "VK" : isHls ? "HLS • تلقائي" : "رابط مباشر";
+
     const movie: Movie = {
       id: `url-${Date.now()}`,
       title: urlTitle.trim() || (isVkEmbed ? "فيلم من VK" : filename || parsed.hostname),
-      sources: [{
-        quality: isVkEmbed ? "VK" : "رابط مباشر",
-        url: parsed.href,
-        size: 0,
-        kind: isVkEmbed ? "embed" : "video",
-      }],
+      poster,
+      sources: [{ quality, url: parsed.href, size: 0, kind }],
       subtitles: [],
     };
 
@@ -110,7 +200,9 @@ export function CinemaApp() {
     setActiveMovie(movie);
     setUrlValue("");
     setUrlTitle("");
+    setUrlPoster("");
     setUrlDialogOpen(false);
+    setSidebarMode("library");
     setSidebarOpen(false);
   }
 
@@ -150,7 +242,7 @@ export function CinemaApp() {
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="ابحث في مكتبتك..."
+              placeholder={sidebarMode === "history" ? "ابحث في سجل المشاهدة..." : "ابحث في مكتبتك..."}
               className="h-11 w-full rounded-full border border-white/8 bg-white/[.045] pr-11 pl-4 text-sm outline-none transition focus:border-rose-500/50 focus:bg-white/[.065]"
             />
           </div>
@@ -190,13 +282,17 @@ export function CinemaApp() {
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-[1600px] lg:grid-cols-[260px_minmax(0,1fr)]">
+      <div className="mx-auto grid max-w-[1600px] lg:grid-cols-[280px_minmax(0,1fr)]">
         <LibrarySidebar
           movies={filteredMovies}
+          history={filteredHistory}
+          mode={sidebarMode}
+          setMode={setSidebarMode}
           activeId={activeMovie.id}
           loading={loading}
           open={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
+          onClearHistory={clearHistory}
           onSelect={(movie) => { setActiveMovie(movie); setSidebarOpen(false); }}
         />
 
@@ -214,17 +310,22 @@ export function CinemaApp() {
               </div>
               {activeMovie.sources.length > 0 && (
                 <span className="hidden rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] text-zinc-400 sm:block">
-                  {activeMovie.sources.length} {activeMovie.sources.length > 1 ? "جودات" : "مصدر"}
+                  {activeMovie.sources[0]?.kind === "hls" ? "HLS" : `${activeMovie.sources.length} ${activeMovie.sources.length > 1 ? "جودات" : "مصدر"}`}
                 </span>
               )}
             </div>
 
-            <VideoPlayer key={activeMovie.id} movie={activeMovie} onOpenFiles={() => fileInput.current?.click()} />
+            <VideoPlayer
+              key={activeMovie.id}
+              movie={activeMovie}
+              onOpenFiles={() => fileInput.current?.click()}
+              onHistoryUpdate={(snapshot) => updateHistory(activeMovie, snapshot)}
+            />
 
             <div className="mt-6 grid gap-4 md:grid-cols-3">
-              <FeatureCard icon={<Sparkles size={18} />} title="صورة مرنة" text="تكبير وقص وتعبئة الشاشة بالطريقة التي تفضلها." />
-              <FeatureCard icon={<Clapperboard size={18} />} title="تحكم كامل" text="جودة وسرعة وصوت واختصارات لوحة مفاتيح." />
-              <FeatureCard icon={<Upload size={18} />} title="ملفاتك محليًا" text="كل المشاهدة تتم من جهازك دون رفع الفيلم." />
+              <FeatureCard icon={<Sparkles size={18} />} title="HLS والجودات" text="تشغيل قوائم m3u8 مع اختيار تلقائي أو يدوي للجودة وعرض تفاصيل البث." />
+              <FeatureCard icon={<Clapperboard size={18} />} title="تفاصيل الوسائط" text="الدقة والمدة والبتريت والكودك والرابط الحالي في لوحة التفاصيل." />
+              <FeatureCard icon={<History size={18} />} title="سجل المشاهدة" text="يحفظ الصورة المصغرة والتقدم ومعلومات المصدر ليستأنف الفيلم لاحقًا." />
             </div>
           </div>
         </section>
@@ -242,33 +343,52 @@ export function CinemaApp() {
               <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-rose-500/15 text-rose-400"><Link2 size={22} /></span>
               <div>
                 <h2 className="text-lg font-black">تشغيل فيلم من رابط</h2>
-                <p className="mt-1 text-xs leading-6 text-zinc-500">يدعم روابط MP4 وWebM المباشرة، وروابط مشغّل VK من نوع video_ext.php.</p>
+                <p className="mt-1 text-xs leading-6 text-zinc-500">يدعم HLS بصيغة m3u8 وMP4/WebM وروابط مشغّل VK. يمكنك أيضًا إضافة صورة مصغرة تحفظ مع السجل.</p>
               </div>
               <button type="button" onClick={() => setUrlDialogOpen(false)} className="mr-auto rounded-xl p-2 text-zinc-500 hover:bg-white/10 hover:text-white" aria-label="إغلاق"><X size={19} /></button>
             </div>
 
             <label className="mb-4 block">
-              <span className="mb-2 block text-xs font-bold text-zinc-300">رابط الفيلم</span>
+              <span className="mb-2 block text-xs font-bold text-zinc-300">رابط الفيلم أو HLS</span>
               <input
                 type="url"
                 value={urlValue}
                 onChange={(event) => setUrlValue(event.target.value)}
-                placeholder="https://example.com/movie.mp4"
+                placeholder="https://example.com/master.m3u8"
                 autoFocus
                 required
                 dir="ltr"
                 className="h-12 w-full rounded-xl border border-white/10 bg-black/35 px-4 text-left text-sm outline-none transition placeholder:text-zinc-700 focus:border-rose-500/60"
               />
             </label>
-            <label className="block">
+            <label className="mb-4 block">
               <span className="mb-2 block text-xs font-bold text-zinc-300">اسم الفيلم <span className="font-normal text-zinc-600">(اختياري)</span></span>
               <input
                 value={urlTitle}
                 onChange={(event) => setUrlTitle(event.target.value)}
-                placeholder="اسم يظهر في المكتبة"
+                placeholder="اسم يظهر في المكتبة والهستوري"
                 className="h-12 w-full rounded-xl border border-white/10 bg-black/35 px-4 text-sm outline-none transition placeholder:text-zinc-700 focus:border-rose-500/60"
               />
             </label>
+            <label className="block">
+              <span className="mb-2 block text-xs font-bold text-zinc-300">رابط الصورة المصغرة <span className="font-normal text-zinc-600">(اختياري)</span></span>
+              <input
+                type="url"
+                value={urlPoster}
+                onChange={(event) => setUrlPoster(event.target.value)}
+                placeholder="https://example.com/poster.jpg"
+                dir="ltr"
+                className="h-12 w-full rounded-xl border border-white/10 bg-black/35 px-4 text-left text-sm outline-none transition placeholder:text-zinc-700 focus:border-rose-500/60"
+              />
+            </label>
+            {posterPreview && (
+              <div className="mt-4 flex items-center gap-3 rounded-xl border border-white/10 bg-black/20 p-2">
+                <div className="relative aspect-video w-24 shrink-0 overflow-hidden rounded-lg bg-black">
+                  <Image src={posterPreview} alt="معاينة الصورة" fill sizes="96px" unoptimized className="object-cover" />
+                </div>
+                <p className="text-xs leading-6 text-zinc-500">ستستخدم هذه الصورة كـThumbnail وتُحفظ مع الفيلم في سجل المشاهدة.</p>
+              </div>
+            )}
             {urlError && <p className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">{urlError}</p>}
             <button type="submit" className="navy-glass mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-sm font-black transition hover:brightness-125">
               <Play size={18} className="fill-white" /> تشغيل الرابط
@@ -280,55 +400,92 @@ export function CinemaApp() {
   );
 }
 
-function LibrarySidebar({ movies, activeId, loading, open, onClose, onSelect }: {
+function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, open, onClose, onSelect, onClearHistory }: {
   movies: Movie[];
+  history: HistoryEntry[];
+  mode: SidebarMode;
+  setMode: (mode: SidebarMode) => void;
   activeId: string;
   loading: boolean;
   open: boolean;
   onClose: () => void;
   onSelect: (movie: Movie) => void;
+  onClearHistory: () => void;
 }) {
+  const count = mode === "library" ? movies.length : history.length;
+
   return (
     <>
       {open && <button className="fixed inset-0 z-40 bg-black/70 lg:hidden" onClick={onClose} aria-label="إغلاق المكتبة" />}
-      <aside className={`fixed inset-y-0 right-0 z-50 w-[min(88vw,320px)] border-l border-white/5 bg-[#0e0e11] p-4 transition-transform lg:sticky lg:top-[72px] lg:z-20 lg:h-[calc(100vh-72px)] lg:w-auto lg:translate-x-0 ${open ? "translate-x-0" : "translate-x-full"}`}>
+      <aside className={`fixed inset-y-0 right-0 z-50 w-[min(88vw,330px)] border-l border-white/5 bg-[#0e0e11] p-4 transition-transform lg:sticky lg:top-[72px] lg:z-20 lg:h-[calc(100vh-72px)] lg:w-auto lg:translate-x-0 ${open ? "translate-x-0" : "translate-x-full"}`}>
         <div className="mb-6 flex items-center justify-between pt-2">
           <div className="flex items-center gap-2 text-sm font-bold"><Library size={17} className="text-rose-400" /> مكتبتي</div>
           <button className="p-2 text-zinc-500 lg:hidden" onClick={onClose}><X size={18} /></button>
         </div>
-        <nav className="mb-7 space-y-1 text-sm">
-          <div className="navy-glass flex items-center gap-3 rounded-xl px-3 py-2.5 font-semibold text-rose-200"><Clapperboard size={17} /> الأفلام</div>
-          <div className="flex items-center gap-3 px-3 py-2.5 text-zinc-500"><History size={17} /> شوهد مؤخرًا</div>
+        <nav className="mb-5 space-y-1 text-sm">
+          <button onClick={() => setMode("library")} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-right font-semibold ${mode === "library" ? "navy-glass text-rose-200" : "text-zinc-500 hover:bg-white/5"}`}><Clapperboard size={17} /> الأفلام</button>
+          <button onClick={() => setMode("history")} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-right font-semibold ${mode === "history" ? "navy-glass text-rose-200" : "text-zinc-500 hover:bg-white/5"}`}><History size={17} /> شوهد مؤخرًا</button>
         </nav>
         <div className="mb-3 flex items-center justify-between px-1 text-[11px] font-bold text-zinc-500">
-          <span>قائمة الأفلام</span><span>{movies.length}</span>
+          <span>{mode === "history" ? "سجل المشاهدة" : "قائمة الأفلام"}</span>
+          <span className="flex items-center gap-2">
+            {count}
+            {mode === "history" && history.length > 0 && (
+              <button onClick={onClearHistory} className="rounded p-1 text-zinc-600 hover:bg-white/10 hover:text-red-300" title="مسح السجل"><Trash2 size={13} /></button>
+            )}
+          </span>
         </div>
-        <div className="space-y-2 overflow-y-auto lg:max-h-[calc(100vh-270px)]">
-          {loading && <div className="rounded-xl bg-white/5 p-4 text-xs text-zinc-500">جارِ قراءة مجلد assets...</div>}
-          {!loading && movies.length === 0 && (
-            <div className="rounded-xl border border-dashed border-white/10 p-4 text-center text-xs leading-6 text-zinc-500">
-              أضف فيلمًا إلى<br /><code dir="ltr" className="text-zinc-300">البرنامج</code>
-            </div>
+        <div className="space-y-2 overflow-y-auto lg:max-h-[calc(100vh-250px)]">
+          {mode === "library" && loading && <div className="rounded-xl bg-white/5 p-4 text-xs text-zinc-500">جارِ قراءة مجلد assets...</div>}
+          {mode === "library" && !loading && movies.length === 0 && (
+            <div className="rounded-xl border border-dashed border-white/10 p-4 text-center text-xs leading-6 text-zinc-500">أضف فيلمًا إلى البرنامج</div>
           )}
-          {movies.map((movie) => (
-            <button
-              key={movie.id}
-              onClick={() => onSelect(movie)}
-              className={`group flex w-full items-center gap-3 rounded-xl p-2 text-right transition ${activeId === movie.id ? "navy-glass" : "hover:bg-white/5"}`}
-            >
-              <span className="relative grid aspect-video w-20 shrink-0 place-items-center overflow-hidden rounded-lg bg-gradient-to-br from-zinc-800 to-zinc-950">
-                {movie.poster ? <Image src={movie.poster} alt="" fill sizes="80px" unoptimized className="object-cover" /> : <Clapperboard size={19} className="text-zinc-600" />}
-                <span className="absolute inset-0 grid place-items-center bg-black/35 opacity-0 transition group-hover:opacity-100"><Play size={16} className="fill-white" /></span>
-              </span>
-              <span className="min-w-0">
-                <span className="block truncate text-xs font-bold">{movie.title}</span>
-                <span className="mt-1 block text-[10px] text-zinc-500">{movie.sources[0]?.quality}</span>
-              </span>
-            </button>
+          {mode === "history" && history.length === 0 && (
+            <div className="rounded-xl border border-dashed border-white/10 p-4 text-center text-xs leading-6 text-zinc-500">سيظهر هنا أي فيلم تبدأ تشغيله من رابط.</div>
+          )}
+
+          {mode === "library" && movies.map((movie) => (
+            <MovieSidebarCard key={movie.id} movie={movie} active={activeId === movie.id} onSelect={() => onSelect(movie)} />
           ))}
+
+          {mode === "history" && history.map((entry) => {
+            const percent = entry.duration > 0 ? Math.min(100, Math.round((entry.progress / entry.duration) * 100)) : 0;
+            return (
+              <MovieSidebarCard
+                key={entry.movie.id}
+                movie={entry.movie}
+                active={activeId === entry.movie.id}
+                onSelect={() => onSelect(entry.movie)}
+                meta={`${entry.details.currentQuality || entry.details.type}${percent ? ` • ${percent}%` : ""}`}
+                progress={percent}
+              />
+            );
+          })}
         </div>
       </aside>
     </>
+  );
+}
+
+function MovieSidebarCard({ movie, active, onSelect, meta, progress }: {
+  movie: Movie;
+  active: boolean;
+  onSelect: () => void;
+  meta?: string;
+  progress?: number;
+}) {
+  return (
+    <button onClick={onSelect} className={`group flex w-full items-center gap-3 rounded-xl p-2 text-right transition ${active ? "navy-glass" : "hover:bg-white/5"}`}>
+      <span className="relative grid aspect-video w-20 shrink-0 place-items-center overflow-hidden rounded-lg bg-gradient-to-br from-zinc-800 to-zinc-950">
+        {movie.poster ? <Image src={movie.poster} alt="" fill sizes="80px" unoptimized className="object-cover" /> : <Clapperboard size={19} className="text-zinc-600" />}
+        <span className="absolute inset-0 grid place-items-center bg-black/35 opacity-0 transition group-hover:opacity-100"><Play size={16} className="fill-white" /></span>
+        {typeof progress === "number" && progress > 0 && <span className="absolute inset-x-0 bottom-0 h-1 bg-white/20"><span className="block h-full bg-rose-300" style={{ width: `${progress}%` }} /></span>}
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate text-xs font-bold">{movie.title}</span>
+        <span className="mt-1 block truncate text-[10px] text-zinc-500">{meta || movie.sources[0]?.quality}</span>
+      </span>
+    </button>
   );
 }
 
