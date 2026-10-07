@@ -1,3 +1,5 @@
+import type { MovieCategory } from "@/lib/movie-categories";
+
 export type MediaSource = {
   quality: string;
   url: string;
@@ -12,6 +14,7 @@ export type Movie = {
   title: string;
   titleOrigin?: "user" | "smart" | "filename" | "catalog";
   poster?: string;
+  categories?: MovieCategory[];
   sources: MediaSource[];
   subtitles: SubtitleTrack[];
 };

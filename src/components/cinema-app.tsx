@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import {
-  BarChart3, Clapperboard, FolderOpen, History, Library, Link2, Menu, Play, Search,
+  BarChart3, Clapperboard, FolderOpen, History, Library, Link2, Menu, Pencil, Play, Search,
   Sparkles, Trash2, X,
 } from "lucide-react";
 import type { DiscoveryResult, Movie, PlaybackHistoryEntry, PlaybackHistorySnapshot, SubtitleTrack } from "@/lib/media-types";
 import { trackAnalytics, visitorId } from "@/lib/browser-analytics";
 import { MovieDiscovery } from "./movie-discovery";
 import { VideoPlayer } from "./video-player";
+import { MOVIE_CATEGORIES, MOVIE_CATEGORY_LABELS, type MovieCategory } from "@/lib/movie-categories";
 
 type LibraryResponse = { movies: Movie[] };
 type SidebarMode = "library" | "history";
@@ -66,6 +67,7 @@ export function CinemaApp() {
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("library");
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<MovieCategory | "all">("all");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [urlDialogOpen, setUrlDialogOpen] = useState(false);
   const [urlValue, setUrlValue] = useState("");
@@ -128,8 +130,8 @@ export function CinemaApp() {
   useEffect(() => () => objectUrls.current.forEach(URL.revokeObjectURL), []);
 
   const filteredMovies = useMemo(
-    () => movies.filter((movie) => movie.title.toLowerCase().includes(query.toLowerCase())),
-    [movies, query],
+    () => movies.filter((movie) => movie.title.toLowerCase().includes(query.toLowerCase()) && (selectedCategory === "all" || movie.categories?.includes(selectedCategory))),
+    [movies, query, selectedCategory],
   );
 
   const posterPreview = useMemo(() => {
@@ -240,12 +242,25 @@ export function CinemaApp() {
     });
   }, []);
 
-  async function clearHistory() {
-    if (!adminAuthenticated || !window.confirm("مسح سجل المشاهدة العام لكل الزوار؟")) return;
-    const response = await fetch("/api/admin/history", { method: "DELETE" });
+  async function renameHistoryMovie(movie: Movie) {
+    if (!adminAuthenticated) return;
+    const title = window.prompt("الاسم الجديد في شوهد مؤخرًا:", movie.title)?.trim();
+    if (!title || title === movie.title) return;
+    const response = await fetch(`/api/admin/history/${encodeURIComponent(movie.id)}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title }),
+    });
     if (!response.ok) return;
-    setHistory([]);
-    localStorage.removeItem(HISTORY_KEY);
+    const rename = (value: Movie) => value.id === movie.id ? { ...value, title, titleOrigin: "user" as const } : value;
+    setMovies((current) => current.map(rename));
+    setActiveMovie((current) => rename(current));
+    setHistory((current) => persistHistory(current.map((entry) => entry.movie.id === movie.id ? { ...entry, movie: rename(entry.movie) } : entry)));
+  }
+
+  async function deleteHistoryMovie(movieId: string) {
+    if (!adminAuthenticated || !window.confirm("حذف هذا الفيلم فقط من شوهد مؤخرًا؟")) return;
+    const response = await fetch(`/api/admin/history/${encodeURIComponent(movieId)}`, { method: "DELETE" });
+    if (!response.ok) return;
+    setHistory((current) => persistHistory(current.filter((entry) => entry.movie.id !== movieId)));
   }
 
   function openLocalFiles(files: FileList | null) {
@@ -438,7 +453,12 @@ export function CinemaApp() {
           open={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
           canManage={adminAuthenticated}
-          onClearHistory={() => void clearHistory()}
+          query={query}
+          onQueryChange={setQuery}
+          selectedCategory={selectedCategory}
+          onCategoryChange={setSelectedCategory}
+          onRenameHistory={(movie) => void renameHistoryMovie(movie)}
+          onDeleteHistory={(movieId) => void deleteHistoryMovie(movieId)}
           onSelect={selectMovie}
         />
 
@@ -550,7 +570,7 @@ export function CinemaApp() {
   );
 }
 
-function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, open, onClose, onSelect, canManage, onClearHistory }: {
+function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, open, onClose, onSelect, canManage, query, onQueryChange, selectedCategory, onCategoryChange, onRenameHistory, onDeleteHistory }: {
   movies: Movie[];
   history: HistoryEntry[];
   mode: SidebarMode;
@@ -561,7 +581,12 @@ function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, ope
   onClose: () => void;
   onSelect: (movie: Movie) => void;
   canManage: boolean;
-  onClearHistory: () => void;
+  query: string;
+  onQueryChange: (value: string) => void;
+  selectedCategory: MovieCategory | "all";
+  onCategoryChange: (value: MovieCategory | "all") => void;
+  onRenameHistory: (movie: Movie) => void;
+  onDeleteHistory: (movieId: string) => void;
 }) {
   const count = mode === "library" ? movies.length : history.length;
 
@@ -577,14 +602,13 @@ function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, ope
           <button onClick={() => setMode("library")} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-right font-semibold ${mode === "library" ? "navy-glass text-rose-200" : "text-zinc-500 hover:bg-white/5"}`}><Clapperboard size={17} /> الأفلام</button>
           <button onClick={() => setMode("history")} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-right font-semibold ${mode === "history" ? "navy-glass text-rose-200" : "text-zinc-500 hover:bg-white/5"}`}><History size={17} /> شوهد مؤخرًا</button>
         </nav>
+        <div className="mb-4 space-y-2">
+          <div className="relative"><Search className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-600" size={14} /><input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder={mode === "history" ? "ابحث في شوهد مؤخرًا..." : "ابحث في الأفلام..."} className="h-10 w-full rounded-xl border border-white/10 bg-black/25 pr-9 pl-3 text-xs outline-none focus:border-rose-400" /></div>
+          {mode === "library" && <select value={selectedCategory} onChange={(event) => onCategoryChange(event.target.value as MovieCategory | "all")} className="cinema-select h-10 w-full rounded-xl border border-white/10 px-3 text-xs"><option value="all">كل التصنيفات</option>{MOVIE_CATEGORIES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select>}
+        </div>
         <div className="mb-3 flex items-center justify-between px-1 text-[11px] font-bold text-zinc-500">
           <span>{mode === "history" ? "سجل المشاهدة" : "قائمة الأفلام"}</span>
-          <span className="flex items-center gap-2">
-            {count}
-            {mode === "history" && history.length > 0 && canManage && (
-              <button onClick={onClearHistory} className="rounded p-1 text-zinc-600 hover:bg-white/10 hover:text-red-300" title="مسح السجل"><Trash2 size={13} /></button>
-            )}
-          </span>
+          <span>{count}</span>
         </div>
         <div className="space-y-2 overflow-y-auto lg:max-h-[calc(100vh-250px)]">
           {mode === "library" && loading && <div className="rounded-xl bg-white/5 p-4 text-xs text-zinc-500">جارِ قراءة مجلد assets...</div>}
@@ -609,6 +633,7 @@ function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, ope
                 onSelect={() => onSelect(entry.movie)}
                 meta={`${entry.details.currentQuality || entry.details.type}${percent ? ` • ${percent}%` : ""}`}
                 progress={percent}
+                manage={canManage ? { onRename: () => onRenameHistory(entry.movie), onDelete: () => onDeleteHistory(entry.movie.id) } : undefined}
               />
             );
           })}
@@ -618,15 +643,17 @@ function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, ope
   );
 }
 
-function MovieSidebarCard({ movie, active, onSelect, meta, progress }: {
+function MovieSidebarCard({ movie, active, onSelect, meta, progress, manage }: {
   movie: Movie;
   active: boolean;
   onSelect: () => void;
   meta?: string;
   progress?: number;
+  manage?: { onRename: () => void; onDelete: () => void };
 }) {
   return (
-    <button onClick={onSelect} className={`group flex w-full items-center gap-3 rounded-xl p-2 text-right transition ${active ? "navy-glass" : "hover:bg-white/5"}`}>
+    <div className={`group flex w-full items-center gap-2 rounded-xl p-2 text-right transition ${active ? "navy-glass" : "hover:bg-white/5"}`}>
+      <button onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-3 text-right">
       <span className="relative grid aspect-video w-20 shrink-0 place-items-center overflow-hidden rounded-lg bg-gradient-to-br from-zinc-800 to-zinc-950">
         {movie.poster ? <Image src={movie.poster} alt="" fill sizes="80px" unoptimized className="object-cover" /> : <Clapperboard size={19} className="text-zinc-600" />}
         <span className="absolute inset-0 grid place-items-center bg-black/35 opacity-0 transition group-hover:opacity-100"><Play size={16} className="fill-white" /></span>
@@ -635,8 +662,11 @@ function MovieSidebarCard({ movie, active, onSelect, meta, progress }: {
       <span className="min-w-0">
         <span className="block truncate text-xs font-bold">{movie.title}</span>
         <span className="mt-1 block truncate text-[10px] text-zinc-500">{meta || movie.sources[0]?.quality}</span>
+        {Boolean(movie.categories?.length) && <span className="mt-1 block truncate text-[9px] text-violet-300">{movie.categories?.slice(0, 2).map((category) => MOVIE_CATEGORY_LABELS[category]).join(" • ")}</span>}
       </span>
-    </button>
+      </button>
+      {manage && <span className="flex shrink-0 flex-col gap-1"><button onClick={manage.onRename} className="rounded-md p-1.5 text-zinc-500 hover:bg-white/10 hover:text-white" title="تعديل الاسم"><Pencil size={12} /></button><button onClick={manage.onDelete} className="rounded-md p-1.5 text-zinc-600 hover:bg-red-500/10 hover:text-red-200" title="حذف هذا الفيلم فقط"><Trash2 size={12} /></button></span>}
+    </div>
   );
 }
 

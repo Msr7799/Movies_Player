@@ -48,6 +48,22 @@ Direct media files and supported YouTube, Vimeo, or Internet Archive results can
 
 MongoDB Atlas stores the public movie catalog, global recently-watched list, and anonymous aggregate activity. Every visitor can search, play, and view the public library/history. Only the site owner can publish, rename, edit, or delete catalog entries and clear global history.
 
+The owner dashboard supports per-movie recent-history rename/delete, search and multi-select,
+Gemini category classification, and JSON catalog import. Imported entries may use `poster`,
+`thumbnail`, or `image`, plus a direct `url`, `sources`, or HLS Collector-style `streams`.
+Only import media you are authorized to publish.
+
+```json
+[
+  {
+    "title": "Authorized movie",
+    "url": "https://media.example/movie/master.m3u8",
+    "thumbnail": "https://media.example/movie/poster.jpg",
+    "categories": ["arabic", "drama"]
+  }
+]
+```
+
 Add these server-only variables:
 
 ```bash

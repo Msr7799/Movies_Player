@@ -2,6 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 import type { MediaDetails, MediaSource, Movie, PlaybackHistorySnapshot } from "@/lib/media-types";
+import { validMovieCategories } from "@/lib/movie-categories";
 
 function text(value: unknown, max: number) {
   return typeof value === "string" ? value.trim().slice(0, max) : "";
@@ -54,6 +55,7 @@ export function sanitizeMovie(value: unknown, keepId = true): Movie {
       ? input.titleOrigin
       : "catalog",
     poster: poster || undefined,
+    categories: validMovieCategories(input.categories),
     sources,
     subtitles,
   };
