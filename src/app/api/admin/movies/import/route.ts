@@ -12,6 +12,12 @@ function records(value: unknown): unknown[] {
   if (!value || typeof value !== "object") return [];
   const input = value as Record<string, unknown>;
   if (Array.isArray(input.movies)) return input.movies;
+  const looksLikeMovie = typeof input.title === "string" || typeof input.name === "string";
+  const hasMedia = typeof input.url === "string"
+    || Array.isArray(input.sources)
+    || Array.isArray(input.streams)
+    || Array.isArray(input.qualities);
+  if (looksLikeMovie && hasMedia) return [value];
   return Object.values(input);
 }
 

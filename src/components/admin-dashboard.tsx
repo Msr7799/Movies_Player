@@ -31,6 +31,16 @@ type AdminHistoryEntry = { movieId: string; movie: Movie; progress: number; dura
 
 const EMPTY_EDITOR: EditorState = { title: "", url: "", poster: "", quality: "HLS • تلقائي", kind: "hls", categories: [] };
 
+async function readJsonResponse<T>(response: Response, label: string): Promise<T> {
+  const text = await response.text();
+  if (!text.trim()) throw new Error(`${label}: أعاد الخادم استجابة فارغة (HTTP ${response.status}).`);
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(`${label}: أعاد الخادم استجابة غير صالحة (HTTP ${response.status}).`);
+  }
+}
+
 export function AdminDashboard() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [configured, setConfigured] = useState(true);
@@ -50,6 +60,7 @@ export function AdminDashboard() {
   const [rightsConfirmed, setRightsConfirmed] = useState(false);
   const [autoClassify, setAutoClassify] = useState(true);
   const [importMessage, setImportMessage] = useState("");
+  const [importError, setImportError] = useState("");
 
   const loadDashboard = useCallback(async () => {
     const [catalogResponse, statsResponse, historyResponse] = await Promise.all([
@@ -61,9 +72,9 @@ export function AdminDashboard() {
       setAuthenticated(false);
       return;
     }
-    const catalog = await catalogResponse.json() as { movies?: Movie[] };
-    const analytics = await statsResponse.json() as AdminStats;
-    const historyPayload = await historyResponse.json() as { history?: AdminHistoryEntry[] };
+    const catalog = await readJsonResponse<{ movies?: Movie[] }>(catalogResponse, "تحميل المكتبة");
+    const analytics = await readJsonResponse<AdminStats>(statsResponse, "تحميل الإحصائيات");
+    const historyPayload = await readJsonResponse<{ history?: AdminHistoryEntry[] }>(historyResponse, "تحميل سجل المشاهدة");
     setMovies(catalog.movies ?? []);
     setStats(analytics);
     setHistory(historyPayload.history ?? []);
@@ -201,7 +212,7 @@ export function AdminDashboard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids: ids.slice(index, index + 40) }),
       });
-      const payload = await response.json() as { error?: string; diagnostic?: string; updated?: number };
+      const payload = await readJsonResponse<{ error?: string; diagnostic?: string; updated?: number }>(response, "تصنيف Gemini");
       if (!response.ok) {
         const diagnostic = payload.diagnostic ? ` (${payload.diagnostic})` : "";
         throw new Error(`${payload.error || "فشل تصنيف Gemini."}${diagnostic}`);
@@ -227,7 +238,7 @@ export function AdminDashboard() {
   }
 
   async function importCatalog() {
-    setBusy(true); setImportMessage(""); setError("");
+    setBusy(true); setImportMessage(""); setImportError("");
     try {
       if (!rightsConfirmed) throw new Error("أكد حقوق نشر المصادر قبل الاستيراد.");
       const normalizedJson = importJson.replace(/^\uFEFF/, "").trim();
@@ -242,12 +253,9 @@ export function AdminDashboard() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ catalog, rightsConfirmed: true }),
       });
-      const responseText = await response.text();
-      if (!responseText) throw new Error(`الخادم أعاد استجابة فارغة (HTTP ${response.status}).`);
-      let payload: { error?: string; imported?: number; ignored?: number; ids?: string[] };
-      try { payload = JSON.parse(responseText) as typeof payload; }
-      catch { throw new Error(`استجابة الخادم ليست JSON صالحة (HTTP ${response.status}).`); }
+      const payload = await readJsonResponse<{ error?: string; imported?: number; ignored?: number; ids?: string[] }>(response, "استيراد JSON");
       if (!response.ok) throw new Error(payload.error || "تعذر الاستيراد.");
+      if ((payload.imported ?? 0) === 0) throw new Error(`لم يُستورد أي فيلم. تم تجاهل ${payload.ignored ?? 0} سجل غير صالح.`);
       const ids = payload.ids ?? [];
       await loadDashboard();
       if (autoClassify && ids.length) {
@@ -259,13 +267,13 @@ export function AdminDashboard() {
         } catch (classificationError) {
           setImportMessage(`تم استيراد ونشر ${payload.imported ?? 0} فيلمًا بنجاح، لكن تعذر التصنيف التلقائي.`);
           setSelectedMovies(ids);
-          setError(classificationError instanceof Error ? classificationError.message : "فشل تصنيف Gemini.");
+          setImportError(classificationError instanceof Error ? classificationError.message : "فشل تصنيف Gemini.");
         }
       } else {
         setImportMessage(`تم استيراد ${payload.imported ?? 0} وتجاهل ${payload.ignored ?? 0}.`);
         setSelectedMovies(ids);
       }
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "تعذر الاستيراد."); }
+    } catch (cause) { setImportError(cause instanceof Error ? cause.message : "تعذر الاستيراد."); }
     finally { setBusy(false); }
   }
 
@@ -345,6 +353,7 @@ export function AdminDashboard() {
               <label className="mb-3 flex items-start gap-2 text-xs text-zinc-400"><input type="checkbox" checked={autoClassify} onChange={(event) => setAutoClassify(event.target.checked)} className="mt-1" /><Sparkles size={14} className="mt-0.5 text-violet-300" />تصنيف الأفلام المستوردة تلقائيًا بواسطة Gemini.</label>
               <button disabled={busy || !importJson.trim()} onClick={() => void importCatalog()} className="navy-glass rounded-xl px-4 py-3 text-xs font-black disabled:opacity-40"><Upload className="ml-2 inline" size={15} />استيراد ونشر للعامة</button>
               {importMessage && <p className="mt-3 rounded-xl bg-emerald-500/10 p-3 text-xs text-emerald-200">{importMessage}</p>}
+              {importError && <p className="mt-3 rounded-xl bg-red-500/10 p-3 text-xs leading-6 text-red-200">{importError}</p>}
             </section>
             <section className="grid gap-6 lg:grid-cols-2">
               <div className="glass rounded-3xl p-5"><h2 className="mb-4 text-sm font-black">الأكثر تشغيلًا</h2><div className="space-y-2">{stats?.topMovies.map((movie, index) => <div key={movie._id} className="flex items-center gap-3 rounded-xl bg-black/20 p-3"><span className="grid size-8 place-items-center rounded-lg bg-white/5 text-xs font-black">{index + 1}</span><span className="min-w-0 flex-1 truncate text-xs font-bold">{movie.title}</span><span className="text-[10px] text-zinc-500">{movie.plays} تشغيل</span></div>)}</div></div>
