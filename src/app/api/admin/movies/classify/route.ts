@@ -1,5 +1,5 @@
 import { isAdminRequest } from "@/lib/admin-auth";
-import { geminiJson } from "@/lib/gemini";
+import { GeminiRequestError, geminiJson } from "@/lib/gemini";
 import type { Movie } from "@/lib/media-types";
 import { MOVIE_CATEGORIES, validMovieCategories } from "@/lib/movie-categories";
 import { ensureDatabaseIndexes } from "@/lib/mongodb";
@@ -68,7 +68,18 @@ export async function POST(request: Request) {
       )));
     }
     return Response.json({ updated: updates.length, items: updates });
-  } catch {
+  } catch (cause) {
+    if (cause instanceof GeminiRequestError) {
+      const messages = {
+        "missing-key": "متغير GEMINI_API_KEY غير موجود في بيئة Vercel Production.",
+        quota: "توقفت حصة Gemini أو تجاوز المفتاح حد الطلبات. راجع Quotas في Google AI Studio.",
+        forbidden: "رفض Gemini المفتاح. تحقق من صلاحية المفتاح وقيود API والمشروع المرتبط به.",
+        model: "نموذج Gemini المحدد غير متاح لهذا المفتاح أو المشروع.",
+        timeout: "انتهت مهلة Gemini قبل اكتمال التصنيف. جرّب عددًا أقل من الأفلام.",
+        request: "رفض Gemini طلب التصنيف أو أعاد استجابة غير صالحة.",
+      } as const;
+      return Response.json({ error: messages[cause.reason], diagnostic: cause.message }, { status: 502 });
+    }
     return Response.json({ error: "تعذر إكمال تصنيف Gemini الآن." }, { status: 502 });
   }
 }

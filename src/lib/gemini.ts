@@ -7,6 +7,16 @@ function configuredGeminiModels() {
 type GeminiApiKeyName = "GEMINI_API_KEY" | "GEMINI_AUTO_SUGGESTED_API_KEY";
 type GeminiPart = { text: string } | { inlineData: { mimeType: string; data: string } };
 
+export class GeminiRequestError extends Error {
+  constructor(
+    message: string,
+    public readonly reason: "missing-key" | "quota" | "forbidden" | "model" | "timeout" | "request",
+  ) {
+    super(message);
+    this.name = "GeminiRequestError";
+  }
+}
+
 async function generateGeminiJson<T>(
   parts: GeminiPart[],
   responseSchema: object,
@@ -14,7 +24,9 @@ async function generateGeminiJson<T>(
   apiKeyName: GeminiApiKeyName,
 ): Promise<T> {
   const apiKey = process.env[apiKeyName];
-  if (!apiKey) throw new Error(`${apiKeyName} is not configured`);
+  if (!apiKey) throw new GeminiRequestError(`${apiKeyName} is not configured`, "missing-key");
+
+  let lastFailure: GeminiRequestError | null = null;
 
   for (const model of configuredGeminiModels()) {
     try {
@@ -31,17 +43,38 @@ async function generateGeminiJson<T>(
         }),
         signal: AbortSignal.timeout(timeoutMs),
       });
-      if (!response.ok) continue;
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as {
+          error?: { status?: string; message?: string };
+        } | null;
+        const status = payload?.error?.status;
+        const detail = [model, `HTTP ${response.status}`, status].filter(Boolean).join(" / ");
+        const reason = response.status === 429
+          ? "quota"
+          : response.status === 401 || response.status === 403
+            ? "forbidden"
+            : response.status === 404
+              ? "model"
+              : "request";
+        lastFailure = new GeminiRequestError(detail, reason);
+        continue;
+      }
       const payload = await response.json() as {
         candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
       };
       const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("").trim();
       if (text) return JSON.parse(text) as T;
-    } catch {
-      // Try the next configured model without exposing credentials or provider details.
+      lastFailure = new GeminiRequestError(`${model} returned no JSON output`, "request");
+    } catch (cause) {
+      if (cause instanceof GeminiRequestError) lastFailure = cause;
+      else if (cause instanceof Error && (cause.name === "TimeoutError" || cause.name === "AbortError")) {
+        lastFailure = new GeminiRequestError(`${model} timed out`, "timeout");
+      } else {
+        lastFailure = new GeminiRequestError(`${model} returned an invalid response`, "request");
+      }
     }
   }
-  throw new Error("Gemini could not process this request");
+  throw lastFailure ?? new GeminiRequestError("Gemini could not process this request", "request");
 }
 
 export async function geminiJson<T>(

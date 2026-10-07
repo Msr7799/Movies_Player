@@ -201,8 +201,11 @@ export function AdminDashboard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids: ids.slice(index, index + 40) }),
       });
-      const payload = await response.json() as { error?: string; updated?: number };
-      if (!response.ok) throw new Error(payload.error || "فشل تصنيف Gemini.");
+      const payload = await response.json() as { error?: string; diagnostic?: string; updated?: number };
+      if (!response.ok) {
+        const diagnostic = payload.diagnostic ? ` (${payload.diagnostic})` : "";
+        throw new Error(`${payload.error || "فشل تصنيف Gemini."}${diagnostic}`);
+      }
       updated += payload.updated ?? 0;
     }
     return updated;
@@ -246,10 +249,22 @@ export function AdminDashboard() {
       catch { throw new Error(`استجابة الخادم ليست JSON صالحة (HTTP ${response.status}).`); }
       if (!response.ok) throw new Error(payload.error || "تعذر الاستيراد.");
       const ids = payload.ids ?? [];
-      const classified = autoClassify && ids.length ? await classifyIds(ids) : 0;
-      setImportMessage(`تم استيراد ${payload.imported ?? 0} وتجاهل ${payload.ignored ?? 0}.${autoClassify ? ` صنّف Gemini ${classified}.` : ""}`);
-      setSelectedMovies(autoClassify ? [] : ids);
       await loadDashboard();
+      if (autoClassify && ids.length) {
+        try {
+          const classified = await classifyIds(ids);
+          setImportMessage(`تم استيراد ${payload.imported ?? 0} وتجاهل ${payload.ignored ?? 0}. صنّف Gemini ${classified}.`);
+          setSelectedMovies([]);
+          await loadDashboard();
+        } catch (classificationError) {
+          setImportMessage(`تم استيراد ونشر ${payload.imported ?? 0} فيلمًا بنجاح، لكن تعذر التصنيف التلقائي.`);
+          setSelectedMovies(ids);
+          setError(classificationError instanceof Error ? classificationError.message : "فشل تصنيف Gemini.");
+        }
+      } else {
+        setImportMessage(`تم استيراد ${payload.imported ?? 0} وتجاهل ${payload.ignored ?? 0}.`);
+        setSelectedMovies(ids);
+      }
     } catch (cause) { setError(cause instanceof Error ? cause.message : "تعذر الاستيراد."); }
     finally { setBusy(false); }
   }
