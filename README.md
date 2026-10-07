@@ -282,6 +282,8 @@ Only play or host media that you own or are authorized to access. Direct-link pl
 
 The URL dialog also accepts authorized HLS playlists ending in `.m3u8`. Cinema Player loads `hls.js` in the browser when native HLS playback is unavailable, reads the master playlist, exposes discovered quality levels, and shows technical media details such as resolution, bitrate, codecs, duration, source host, and playback errors.
 
+When an HLS URL has only a generic filename such as `master.m3u8`, the player captures compressed frames at progressive playback checkpoints and uses Gemini vision to identify the underlying title conservatively. Advertisements and generic overlays are rejected instead of being treated as the movie name, and later frames retry automatically. A title entered manually by the viewer is never replaced.
+
 You can optionally add a remote thumbnail URL when opening a movie URL. The thumbnail, movie metadata, current playback position, and HLS details are stored in the browser's **Recently Watched** history. History can be searched from the sidebar and cleared at any time.
 
 Some HLS URLs are signed or temporary. If a token expires, or if the media server does not allow the Cinema Player origin through CORS, the player will show the network error but will not bypass the source server's access controls.

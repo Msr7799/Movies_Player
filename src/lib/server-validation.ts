@@ -50,6 +50,9 @@ export function sanitizeMovie(value: unknown, keepId = true): Movie {
   return {
     id: keepId && suppliedId ? suppliedId : `movie-${randomUUID()}`,
     title,
+    titleOrigin: input.titleOrigin === "user" || input.titleOrigin === "smart" || input.titleOrigin === "filename" || input.titleOrigin === "catalog"
+      ? input.titleOrigin
+      : "catalog",
     poster: poster || undefined,
     sources,
     subtitles,

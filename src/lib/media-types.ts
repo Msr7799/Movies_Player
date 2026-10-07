@@ -10,6 +10,7 @@ export type SubtitleTrack = { label: string; language: string; url: string };
 export type Movie = {
   id: string;
   title: string;
+  titleOrigin?: "user" | "smart" | "filename" | "catalog";
   poster?: string;
   sources: MediaSource[];
   subtitles: SubtitleTrack[];

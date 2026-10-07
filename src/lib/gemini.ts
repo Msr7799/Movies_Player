@@ -5,12 +5,13 @@ function configuredGeminiModels() {
 }
 
 type GeminiApiKeyName = "GEMINI_API_KEY" | "GEMINI_AUTO_SUGGESTED_API_KEY";
+type GeminiPart = { text: string } | { inlineData: { mimeType: string; data: string } };
 
-export async function geminiJson<T>(
-  prompt: string,
+async function generateGeminiJson<T>(
+  parts: GeminiPart[],
   responseSchema: object,
-  timeoutMs = 30_000,
-  apiKeyName: GeminiApiKeyName = "GEMINI_API_KEY",
+  timeoutMs: number,
+  apiKeyName: GeminiApiKeyName,
 ): Promise<T> {
   const apiKey = process.env[apiKeyName];
   if (!apiKey) throw new Error(`${apiKeyName} is not configured`);
@@ -21,9 +22,9 @@ export async function geminiJson<T>(
         method: "POST",
         headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
         body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          contents: [{ role: "user", parts }],
           generationConfig: {
-            temperature: 0.15,
+            temperature: 0.1,
             responseMimeType: "application/json",
             responseSchema,
           },
@@ -41,4 +42,22 @@ export async function geminiJson<T>(
     }
   }
   throw new Error("Gemini could not process this request");
+}
+
+export async function geminiJson<T>(
+  prompt: string,
+  responseSchema: object,
+  timeoutMs = 30_000,
+  apiKeyName: GeminiApiKeyName = "GEMINI_API_KEY",
+): Promise<T> {
+  return generateGeminiJson<T>([{ text: prompt }], responseSchema, timeoutMs, apiKeyName);
+}
+
+export async function geminiImageJson<T>(prompt: string, responseSchema: object, imageDataUrl: string, timeoutMs = 35_000) {
+  const match = imageDataUrl.match(/^data:(image\/(?:webp|jpeg|png));base64,([a-zA-Z0-9+/=]+)$/);
+  if (!match) throw new Error("Unsupported image data");
+  return generateGeminiJson<T>([
+    { text: prompt },
+    { inlineData: { mimeType: match[1], data: match[2] } },
+  ], responseSchema, timeoutMs, "GEMINI_API_KEY");
 }

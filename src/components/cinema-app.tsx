@@ -75,6 +75,8 @@ export function CinemaApp() {
   const fileInput = useRef<HTMLInputElement>(null);
   const objectUrls = useRef<string[]>([]);
   const remoteSyncTimes = useRef(new Map<string, number>());
+  const smartTitleAttempts = useRef(new Set<string>());
+  const smartTitleCompleted = useRef(new Set<string>());
   const [adminAuthenticated, setAdminAuthenticated] = useState(false);
 
   const loadLibrary = useCallback(async () => {
@@ -191,6 +193,45 @@ export function CinemaApp() {
     }
   }, [adminAuthenticated]);
 
+  const updateMovieTitle = useCallback((movieId: string, title: string) => {
+    const applyTitle = (movie: Movie) => movie.id === movieId ? { ...movie, title, titleOrigin: "smart" as const } : movie;
+    setMovies((current) => current.map(applyTitle));
+    setActiveMovie((current) => applyTitle(current));
+    setHistory((current) => persistHistory(current.map((entry) => entry.movie.id === movieId
+      ? { ...entry, movie: applyTitle(entry.movie) }
+      : entry)));
+    if (adminAuthenticated) {
+      void fetch(`/api/admin/movies/${encodeURIComponent(movieId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, titleOrigin: "smart" }),
+      }).catch(() => undefined);
+    }
+  }, [adminAuthenticated]);
+
+  const identifyMovieTitle = useCallback(async (movie: Movie, poster: string, capturedAt: number) => {
+    const genericFallback = /^(master|index|playlist|manifest|video|stream)$/i.test(movie.title.trim());
+    if (capturedAt < 15 || movie.titleOrigin === "user" || movie.titleOrigin === "catalog" || movie.titleOrigin === "smart" || (!genericFallback && movie.titleOrigin !== "filename") || smartTitleCompleted.current.has(movie.id)) return;
+    const checkpoint = capturedAt >= 90 ? 90 : capturedAt >= 40 ? 40 : 15;
+    const attemptKey = `${movie.id}:${checkpoint}`;
+    if (smartTitleAttempts.current.has(attemptKey)) return;
+    smartTitleAttempts.current.add(attemptKey);
+    try {
+      const response = await fetch("/api/media/identify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ poster, sourceUrl: movie.sources[0]?.url, currentTitle: movie.title, capturedAt }),
+      });
+      const result = await response.json() as { identified?: boolean; title?: string; year?: string };
+      if (!response.ok || !result.identified || !result.title) return;
+      const title = result.year && !result.title.includes(result.year) ? `${result.title} (${result.year})` : result.title;
+      smartTitleCompleted.current.add(movie.id);
+      updateMovieTitle(movie.id, title);
+    } catch {
+      // A later capture checkpoint can retry with a more useful frame.
+    }
+  }, [updateMovieTitle]);
+
   const selectMovie = useCallback((movie: Movie) => {
     setActiveMovie(movie);
     setSidebarOpen(false);
@@ -270,6 +311,7 @@ export function CinemaApp() {
     const movie: Movie = {
       id: `url-${Date.now()}`,
       title: urlTitle.trim() || (isVkEmbed ? "فيلم من VK" : filename || parsed.hostname),
+      titleOrigin: urlTitle.trim() ? "user" : "filename",
       poster,
       sources: [{ quality, url: parsed.href, size: 0, kind }],
       subtitles: [],
@@ -424,7 +466,10 @@ export function CinemaApp() {
               movie={activeMovie}
               onOpenFiles={() => fileInput.current?.click()}
               onHistoryUpdate={(snapshot) => updateHistory(activeMovie, snapshot)}
-              onPosterGenerated={(poster) => updateMoviePoster(activeMovie.id, poster)}
+              onPosterGenerated={(poster, capturedAt) => {
+                updateMoviePoster(activeMovie.id, poster);
+                void identifyMovieTitle(activeMovie, poster, capturedAt);
+              }}
             />
 
             <div className="mt-6 grid gap-4 md:grid-cols-3">

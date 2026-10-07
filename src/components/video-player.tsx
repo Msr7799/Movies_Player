@@ -84,7 +84,7 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate, onPosterGener
   movie: Movie;
   onOpenFiles: () => void;
   onHistoryUpdate?: (snapshot: PlaybackHistorySnapshot) => void;
-  onPosterGenerated?: (poster: string) => void;
+  onPosterGenerated?: (poster: string, capturedAt: number) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -216,7 +216,7 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate, onPosterGener
         poster = canvas.toDataURL("image/jpeg", .62);
       }
       if (poster.length > 140_000) return;
-      onPosterGenerated(poster);
+      onPosterGenerated(poster, video.currentTime);
     } catch {
       // Cross-origin streams may play but still forbid canvas frame extraction.
     }
