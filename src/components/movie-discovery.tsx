@@ -1,6 +1,6 @@
 "use client";
 
-import { Captions, Clapperboard, ExternalLink, Languages, LoaderCircle, Play, Search, ShieldCheck, Sparkles } from "lucide-react";
+import { Captions, ChevronDown, Clapperboard, ExternalLink, Languages, LoaderCircle, Play, Search, ShieldCheck, SlidersHorizontal, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { DiscoveryResponse, DiscoveryResult, SearchProvider } from "@/lib/media-types";
 import { trackAnalytics } from "@/lib/browser-analytics";
@@ -23,6 +23,7 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
   const [subtitleLanguage, setSubtitleLanguage] = useState<SubtitleLanguageValue>("any");
   const [allowShortClips, setAllowShortClips] = useState(false);
   const [searchProvider, setSearchProvider] = useState<SearchProvider>("tavily");
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const suggestionCache = useRef(new Map<string, MovieSuggestion[]>());
   const suppressNextSuggestion = useRef(false);
 
@@ -111,8 +112,10 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
   }
 
   return (
-    <section className="glass mb-7 overflow-hidden rounded-3xl p-4 sm:p-6" aria-labelledby="ai-search-title">
-      <div className="mb-4 flex flex-wrap items-start gap-3">
+    <section className="glass mb-7 overflow-visible rounded-3xl p-3 transition-[padding,box-shadow] duration-700 ease-[cubic-bezier(.22,1,.36,1)] sm:p-4" aria-labelledby="ai-search-title">
+      <div className={`grid overflow-hidden transition-[grid-template-rows,opacity,margin] duration-700 ease-[cubic-bezier(.22,1,.36,1)] ${optionsOpen ? "mb-4 grid-rows-[1fr] opacity-100" : "mb-0 grid-rows-[0fr] opacity-0"}`} aria-hidden={!optionsOpen}>
+      <div className="min-h-0">
+      <div className="flex flex-wrap items-start gap-3 px-1 pt-1">
         <span className="navy-glass grid size-11 shrink-0 place-items-center rounded-2xl text-rose-200">
           <Sparkles size={21} />
         </span>
@@ -148,6 +151,8 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
             })}
           </div>
         </fieldset>
+      </div>
+      </div>
       </div>
 
       <form onSubmit={searchMovies} className="space-y-3">
@@ -201,8 +206,21 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
             {loading ? <LoaderCircle className="animate-spin" size={18} /> : <Sparkles size={18} />}
             {loading ? "بحث عميق..." : "ابحث الآن"}
           </button>
+          <button
+            type="button"
+            onClick={() => setOptionsOpen((value) => !value)}
+            aria-expanded={optionsOpen}
+            aria-controls="smart-search-options"
+            className={`flex h-12 shrink-0 items-center justify-center gap-2 rounded-2xl border px-4 text-xs font-bold transition duration-500 ${optionsOpen ? "border-rose-400/35 bg-rose-500/10 text-rose-100" : "border-white/10 bg-white/[.035] text-zinc-400 hover:bg-white/[.07] hover:text-white"}`}
+          >
+            <SlidersHorizontal size={16} />
+            <span className="hidden sm:inline">{optionsOpen ? "إخفاء الخيارات" : "خيارات البحث"}</span>
+            <ChevronDown size={14} className={`transition-transform duration-700 ${optionsOpen ? "rotate-180" : ""}`} />
+          </button>
         </div>
 
+        <div id="smart-search-options" className={`grid overflow-hidden transition-[grid-template-rows,opacity] duration-700 ease-[cubic-bezier(.22,1,.36,1)] ${optionsOpen ? "grid-rows-[1fr] opacity-100" : "pointer-events-none grid-rows-[0fr] opacity-0"}`}>
+        <div className="min-h-0 space-y-3">
         <div className="grid gap-2 sm:grid-cols-2">
           <label className="relative block">
             <Languages className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-rose-300" size={16} />
@@ -248,6 +266,8 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
             <span className={`absolute right-1 top-1 size-4 rounded-full shadow transition-transform ${allowShortClips ? "-translate-x-5 bg-white" : "bg-zinc-500"}`} />
           </span>
         </label>
+        </div>
+        </div>
       </form>
 
       <div aria-live="polite">
