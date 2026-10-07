@@ -4,16 +4,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import {
   BarChart3, Clapperboard, FolderOpen, History, Library, Link2, Menu, Pencil, Play, Search,
-  Sparkles, Trash2, X,
+  SlidersHorizontal, Sparkles, Trash2, X,
 } from "lucide-react";
 import type { DiscoveryResult, Movie, PlaybackHistoryEntry, PlaybackHistorySnapshot, SubtitleTrack } from "@/lib/media-types";
 import { trackAnalytics, visitorId } from "@/lib/browser-analytics";
+import { DEFAULT_CATEGORY_COLORS, type CategoryColors } from "@/lib/category-colors";
 import { MovieDiscovery } from "./movie-discovery";
 import { VideoPlayer } from "./video-player";
 import { MOVIE_CATEGORIES, MOVIE_CATEGORY_LABELS, type MovieCategory } from "@/lib/movie-categories";
 
 type LibraryResponse = { movies: Movie[] };
 type SidebarMode = "library" | "history";
+type CategoryFilter = MovieCategory | "all" | "uncategorized";
 type HistoryEntry = PlaybackHistoryEntry;
 
 const HISTORY_KEY = "cinema-playback-history-v2";
@@ -67,7 +69,8 @@ export function CinemaApp() {
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("library");
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<MovieCategory | "all">("all");
+  const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>("all");
+  const [categoryColors, setCategoryColors] = useState<CategoryColors>(DEFAULT_CATEGORY_COLORS);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [urlDialogOpen, setUrlDialogOpen] = useState(false);
   const [urlValue, setUrlValue] = useState("");
@@ -124,13 +127,21 @@ export function CinemaApp() {
       .then((response) => response.json())
       .then((session: { authenticated?: boolean }) => setAdminAuthenticated(session.authenticated === true))
       .catch(() => undefined);
+    void fetch("/api/categories", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((payload: { colors?: CategoryColors }) => setCategoryColors({ ...DEFAULT_CATEGORY_COLORS, ...payload.colors }))
+      .catch(() => undefined);
     trackAnalytics("visit");
   }, [loadLibrary]);
 
   useEffect(() => () => objectUrls.current.forEach(URL.revokeObjectURL), []);
 
   const filteredMovies = useMemo(
-    () => movies.filter((movie) => movie.title.toLowerCase().includes(query.toLowerCase()) && (selectedCategory === "all" || movie.categories?.includes(selectedCategory))),
+    () => movies.filter((movie) => movie.title.toLowerCase().includes(query.toLowerCase()) && (
+      selectedCategory === "all"
+      || selectedCategory === "uncategorized" && !movie.categories?.length
+      || selectedCategory !== "uncategorized" && movie.categories?.includes(selectedCategory)
+    )),
     [movies, query, selectedCategory],
   );
 
@@ -287,6 +298,28 @@ export function CinemaApp() {
       if (current.id !== movie.id) return current;
       return movies.find((item) => item.id !== movie.id) ?? VEER_ZAARA_MOVIE;
     });
+  }
+
+  async function updateMovieCategories(movie: Movie, categories: MovieCategory[]) {
+    if (!adminAuthenticated) return;
+    const response = await fetch(`/api/admin/movies/${encodeURIComponent(movie.id)}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ categories }),
+    });
+    if (!response.ok) return;
+    const apply = (value: Movie) => value.id === movie.id ? { ...value, categories } : value;
+    setMovies((current) => current.map(apply));
+    setActiveMovie((current) => apply(current));
+    setHistory((current) => persistHistory(current.map((entry) => entry.movie.id === movie.id ? { ...entry, movie: apply(entry.movie) } : entry)));
+  }
+
+  async function updateCategoryColor(category: MovieCategory, color: string) {
+    if (!adminAuthenticated) return;
+    const next = { ...categoryColors, [category]: color };
+    setCategoryColors(next);
+    const response = await fetch("/api/categories", {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ colors: next }),
+    });
+    if (!response.ok) setCategoryColors(categoryColors);
   }
 
   function openLocalFiles(files: FileList | null) {
@@ -483,6 +516,9 @@ export function CinemaApp() {
           onQueryChange={setQuery}
           selectedCategory={selectedCategory}
           onCategoryChange={setSelectedCategory}
+          categoryColors={categoryColors}
+          onCategorizeMovie={(movie, categories) => void updateMovieCategories(movie, categories)}
+          onCategoryColorChange={(category, color) => void updateCategoryColor(category, color)}
           onRenameHistory={(movie) => void renameHistoryMovie(movie)}
           onDeleteHistory={(movieId) => void deleteHistoryMovie(movieId)}
           onRenameMovie={(movie) => void renameLibraryMovie(movie)}
@@ -510,7 +546,7 @@ export function CinemaApp() {
             </div>
 
             <VideoPlayer
-              key={activeMovie.id}
+              key={`${activeMovie.id}:${activeMovie.sources[0]?.url ?? "none"}`}
               movie={activeMovie}
               onOpenFiles={() => fileInput.current?.click()}
               onHistoryUpdate={(snapshot) => updateHistory(activeMovie, snapshot)}
@@ -598,7 +634,7 @@ export function CinemaApp() {
   );
 }
 
-function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, open, onClose, onSelect, canManage, query, onQueryChange, selectedCategory, onCategoryChange, onRenameHistory, onDeleteHistory, onRenameMovie, onDeleteMovie }: {
+function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, open, onClose, onSelect, canManage, query, onQueryChange, selectedCategory, onCategoryChange, categoryColors, onCategorizeMovie, onCategoryColorChange, onRenameHistory, onDeleteHistory, onRenameMovie, onDeleteMovie }: {
   movies: Movie[];
   history: HistoryEntry[];
   mode: SidebarMode;
@@ -611,8 +647,11 @@ function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, ope
   canManage: boolean;
   query: string;
   onQueryChange: (value: string) => void;
-  selectedCategory: MovieCategory | "all";
-  onCategoryChange: (value: MovieCategory | "all") => void;
+  selectedCategory: CategoryFilter;
+  onCategoryChange: (value: CategoryFilter) => void;
+  categoryColors: CategoryColors;
+  onCategorizeMovie: (movie: Movie, categories: MovieCategory[]) => void;
+  onCategoryColorChange: (category: MovieCategory, color: string) => void;
   onRenameHistory: (movie: Movie) => void;
   onDeleteHistory: (movieId: string) => void;
   onRenameMovie: (movie: Movie) => void;
@@ -634,12 +673,13 @@ function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, ope
         </nav>
         <div className="mb-4 space-y-2">
           <div className="relative"><Search className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-600" size={14} /><input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder={mode === "history" ? "ابحث في شوهد مؤخرًا..." : "ابحث في الأفلام..."} className="h-10 w-full rounded-xl border border-white/10 bg-black/25 pr-9 pl-3 text-xs outline-none focus:border-rose-400" /></div>
-          {mode === "library" && <select value={selectedCategory} onChange={(event) => onCategoryChange(event.target.value as MovieCategory | "all")} className="cinema-select h-10 w-full rounded-xl border border-white/10 px-3 text-xs"><option value="all">كل التصنيفات</option>{MOVIE_CATEGORIES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select>}
+          {mode === "library" && <select value={selectedCategory} onChange={(event) => onCategoryChange(event.target.value as CategoryFilter)} className="cinema-select h-10 w-full rounded-xl border border-white/10 px-3 text-xs"><option value="all">كل التصنيفات</option><option value="uncategorized">غير مصنفة</option>{MOVIE_CATEGORIES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select>}
         </div>
         <div className="mb-3 flex items-center justify-between px-1 text-[11px] font-bold text-zinc-500">
           <span>{mode === "history" ? "سجل المشاهدة" : "قائمة الأفلام"}</span>
           <span>{count}</span>
         </div>
+        <p className="mb-2 px-1 text-[9px] text-zinc-600">اضغط بزر الفأرة الأيمن على الفيلم لفتح مركز التخصيص.</p>
         <div className="space-y-2 overflow-y-auto lg:max-h-[calc(100vh-250px)]">
           {mode === "library" && loading && <div className="rounded-xl bg-white/5 p-4 text-xs text-zinc-500">جارِ قراءة مجلد assets...</div>}
           {mode === "library" && !loading && movies.length === 0 && (
@@ -650,7 +690,7 @@ function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, ope
           )}
 
           {mode === "library" && movies.map((movie) => (
-            <MovieSidebarCard key={movie.id} movie={movie} active={activeId === movie.id} onSelect={() => onSelect(movie)} manage={canManage ? { onRename: () => onRenameMovie(movie), onDelete: () => onDeleteMovie(movie) } : undefined} />
+            <MovieSidebarCard key={movie.id} movie={movie} active={activeId === movie.id} onSelect={() => onSelect(movie)} onSelectSource={(url) => onSelect({ ...movie, sources: [...movie.sources.filter((source) => source.url === url), ...movie.sources.filter((source) => source.url !== url)] })} onFilterCategory={onCategoryChange} categoryColors={categoryColors} onCategorize={(categories) => onCategorizeMovie(movie, categories)} onCategoryColorChange={onCategoryColorChange} manage={canManage ? { onRename: () => onRenameMovie(movie), onDelete: () => onDeleteMovie(movie) } : undefined} />
           ))}
 
           {mode === "history" && history.map((entry) => {
@@ -661,6 +701,11 @@ function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, ope
                 movie={entry.movie}
                 active={activeId === entry.movie.id}
                 onSelect={() => onSelect(entry.movie)}
+                onSelectSource={(url) => onSelect({ ...entry.movie, sources: [...entry.movie.sources.filter((source) => source.url === url), ...entry.movie.sources.filter((source) => source.url !== url)] })}
+                onFilterCategory={onCategoryChange}
+                categoryColors={categoryColors}
+                onCategorize={(categories) => onCategorizeMovie(entry.movie, categories)}
+                onCategoryColorChange={onCategoryColorChange}
                 meta={`${entry.details.currentQuality || entry.details.type}${percent ? ` • ${percent}%` : ""}`}
                 progress={percent}
                 manage={canManage ? { onRename: () => onRenameHistory(entry.movie), onDelete: () => onDeleteHistory(entry.movie.id) } : undefined}
@@ -673,16 +718,36 @@ function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, ope
   );
 }
 
-function MovieSidebarCard({ movie, active, onSelect, meta, progress, manage }: {
+function MovieSidebarCard({ movie, active, onSelect, onSelectSource, onFilterCategory, categoryColors, onCategorize, onCategoryColorChange, meta, progress, manage }: {
   movie: Movie;
   active: boolean;
   onSelect: () => void;
+  onSelectSource: (url: string) => void;
+  onFilterCategory: (category: CategoryFilter) => void;
+  categoryColors: CategoryColors;
+  onCategorize: (categories: MovieCategory[]) => void;
+  onCategoryColorChange: (category: MovieCategory, color: string) => void;
   meta?: string;
   progress?: number;
   manage?: { onRename: () => void; onDelete: () => void };
 }) {
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("scroll", close, true);
+    return () => { window.removeEventListener("click", close); window.removeEventListener("scroll", close, true); };
+  }, [menu]);
+  const toggleCategory = (category: MovieCategory) => {
+    const current = movie.categories ?? [];
+    onCategorize(current.includes(category) ? current.filter((item) => item !== category) : [...current, category].slice(0, 8));
+  };
   return (
-    <div className={`group flex w-full items-center gap-2 rounded-xl p-2 text-right transition ${active ? "navy-glass" : "hover:bg-white/5"}`}>
+    <div
+      className={`group flex w-full items-center gap-2 rounded-xl p-2 text-right transition ${active ? "navy-glass" : "hover:bg-white/5"}`}
+      onContextMenu={(event) => { event.preventDefault(); setMenu({ x: Math.max(8, Math.min(event.clientX, window.innerWidth - 310)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - 520)) }); }}
+    >
       <button onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-3 text-right">
       <span className="relative grid aspect-video w-20 shrink-0 place-items-center overflow-hidden rounded-lg bg-gradient-to-br from-zinc-800 to-zinc-950">
         {movie.poster ? <Image src={movie.poster} alt="" fill sizes="80px" unoptimized className="object-cover" /> : <Clapperboard size={19} className="text-zinc-600" />}
@@ -692,10 +757,29 @@ function MovieSidebarCard({ movie, active, onSelect, meta, progress, manage }: {
       <span className="min-w-0">
         <span className="block truncate text-xs font-bold">{movie.title}</span>
         <span className="mt-1 block truncate text-[10px] text-zinc-500">{meta || movie.sources[0]?.quality}</span>
-        {Boolean(movie.categories?.length) && <span className="mt-1 block truncate text-[9px] text-violet-300">{movie.categories?.slice(0, 2).map((category) => MOVIE_CATEGORY_LABELS[category]).join(" • ")}</span>}
+        {Boolean(movie.categories?.length) && <span className="mt-1 flex gap-1 overflow-hidden">{movie.categories?.slice(0, 2).map((category) => <span key={category} className="truncate rounded px-1.5 py-0.5 text-[8px] text-white" style={{ backgroundColor: `${categoryColors[category] ?? "#7c3aed"}bb` }}>{MOVIE_CATEGORY_LABELS[category]}</span>)}</span>}
+        {!movie.categories?.length && <span className="mt-1 block text-[9px] text-zinc-600">غير مصنفة</span>}
       </span>
       </button>
+      <button onClick={(event) => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); setMenu({ x: Math.max(8, Math.min(rect.left - 260, window.innerWidth - 310)), y: Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - 520)) }); }} className="rounded-md p-1.5 text-zinc-600 hover:bg-white/10 hover:text-white" title="تخصيص الفيلم"><SlidersHorizontal size={12} /></button>
       {manage && <span className="flex shrink-0 flex-col gap-1"><button onClick={manage.onRename} className="rounded-md p-1.5 text-zinc-500 hover:bg-white/10 hover:text-white" title="تعديل الاسم"><Pencil size={12} /></button><button onClick={manage.onDelete} className="rounded-md p-1.5 text-zinc-600 hover:bg-red-500/10 hover:text-red-200" title="حذف هذا الفيلم فقط"><Trash2 size={12} /></button></span>}
+      {menu && <div className="fixed z-[100] w-[300px] overflow-hidden rounded-2xl border border-white/10 bg-[#111722]/98 text-right shadow-2xl backdrop-blur-xl" style={{ left: menu.x, top: menu.y }} dir="rtl" onClick={(event) => event.stopPropagation()}>
+        <div className="border-b border-white/8 px-4 py-3"><div className="truncate text-xs font-black">{movie.title}</div><div className="mt-1 text-[9px] text-zinc-500">مركز تخصيص الفيلم</div></div>
+        <div className="max-h-[430px] overflow-y-auto p-2">
+          <div className="px-2 py-1 text-[10px] font-bold text-zinc-500">الجودة والمصدر</div>
+          {movie.sources.map((source, index) => <button key={`${source.url}-${index}`} onClick={() => { onSelectSource(source.url); setMenu(null); }} className="flex w-full items-center rounded-lg px-2 py-2 text-[11px] hover:bg-white/7"><span>{source.quality}</span><span className="mr-auto max-w-28 truncate text-left text-[8px] text-zinc-600" dir="ltr">{source.kind ?? "video"}</span></button>)}
+          <div className="mt-2 border-t border-white/8 px-2 pb-1 pt-3 text-[10px] font-bold text-zinc-500">التصنيفات</div>
+          {!movie.categories?.length && <button onClick={() => { onFilterCategory("uncategorized"); setMenu(null); }} className="mb-1 w-full rounded-lg bg-white/5 px-2 py-2 text-right text-[10px] text-zinc-400">عرض غير المصنفة</button>}
+          {MOVIE_CATEGORIES.map(([category, label]) => {
+            const assigned = movie.categories?.includes(category) ?? false;
+            return <div key={category} className="flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-white/5">
+              <button onClick={() => manage ? toggleCategory(category) : onFilterCategory(category)} className="flex min-w-0 flex-1 items-center gap-2 py-1.5 text-right text-[10px]"><span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: categoryColors[category] ?? "#7c3aed" }} /><span className="truncate">{label}</span>{assigned && <span className="mr-auto text-emerald-300">✓</span>}</button>
+              {manage && <input type="color" value={categoryColors[category] ?? "#7c3aed"} onChange={(event) => onCategoryColorChange(category, event.target.value)} className="size-6 cursor-pointer rounded border-0 bg-transparent" title="لون التصنيف" />}
+            </div>;
+          })}
+          {manage && <div className="mt-2 grid grid-cols-2 gap-2 border-t border-white/8 pt-2"><button onClick={() => { manage.onRename(); setMenu(null); }} className="rounded-lg bg-white/7 px-2 py-2 text-[10px]">تعديل الاسم</button><button onClick={() => { manage.onDelete(); setMenu(null); }} className="rounded-lg bg-red-500/10 px-2 py-2 text-[10px] text-red-200">حذف الفيلم</button></div>}
+        </div>
+      </div>}
     </div>
   );
 }

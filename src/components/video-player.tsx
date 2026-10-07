@@ -4,15 +4,15 @@ import Image from "next/image";
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Captions, Check, Download, FastForward, Gauge, Info, Maximize,
+  Captions, Cast, Check, Download, FastForward, FileText, Gauge, Info, Maximize,
   Minimize, Pause, PictureInPicture, Play, Rewind, Settings, Upload,
-  Volume1, Volume2, VolumeX, X, ZoomIn,
+  RotateCcw, SlidersHorizontal, Volume1, Volume2, VolumeX, X, ZoomIn,
 } from "lucide-react";
 import type { MediaDetails, Movie, PlaybackHistorySnapshot, SubtitleTrack } from "@/lib/media-types";
 import { loadHlsLibrary, normalizeHlsLevels, type HlsInstanceLike, type HlsLevelInfo } from "@/lib/hls-runtime";
 
 type Cue = { start: number; end: number; text: string };
-type SettingsPanel = "main" | "quality" | "speed" | "subtitles" | "appearance" | "details";
+type SettingsPanel = "main" | "quality" | "speed" | "subtitles" | "appearance" | "picture" | "details";
 type SubtitleStyle = {
   size: number;
   color: string;
@@ -21,6 +21,11 @@ type SubtitleStyle = {
   position: number;
   weight: number;
   shadow: boolean;
+};
+type PictureAdjustments = { brightness: number; contrast: number; saturation: number; temperature: number };
+type RemoteVideoElement = HTMLVideoElement & {
+  remote?: { prompt: () => Promise<void>; state?: string };
+  webkitShowPlaybackTargetPicker?: () => void;
 };
 
 const DEFAULT_STYLE: SubtitleStyle = {
@@ -32,6 +37,7 @@ const DEFAULT_STYLE: SubtitleStyle = {
   weight: 700,
   shadow: true,
 };
+const DEFAULT_PICTURE: PictureAdjustments = { brightness: 0, contrast: 0, saturation: 0, temperature: 0 };
 
 const speeds = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 const THUMBNAIL_CAPTURE_TIMES = [2, 15, 40, 90];
@@ -96,6 +102,8 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate, onPosterGener
   const hasCustomPosterRef = useRef(Boolean(movie.poster && !movie.poster.startsWith("data:")));
   const hlsNetworkRetriesRef = useRef(0);
   const hlsRecoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const subtitleInputRef = useRef<HTMLInputElement>(null);
+  const subtitleObjectUrlsRef = useRef<string[]>([]);
 
   const [sourceUrl, setSourceUrl] = useState(() => movie.sources[0]?.url ?? "");
   const [embedStarted, setEmbedStarted] = useState(false);
@@ -112,6 +120,8 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate, onPosterGener
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [panel, setPanel] = useState<SettingsPanel>("main");
   const [subtitleTrack, setSubtitleTrack] = useState<SubtitleTrack | null>(() => movie.subtitles[0] ?? null);
+  const [localSubtitles, setLocalSubtitles] = useState<SubtitleTrack[]>([]);
+  const [subtitleDelay, setSubtitleDelay] = useState(0);
   const [cues, setCues] = useState<Cue[]>([]);
   const [subtitleStyle, setSubtitleStyle] = useState<SubtitleStyle>(() => {
     if (typeof window === "undefined") return DEFAULT_STYLE;
@@ -127,6 +137,13 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate, onPosterGener
   const [hlsError, setHlsError] = useState("");
   const [hlsEngine, setHlsEngine] = useState<"hls.js" | "native" | "">("");
   const [videoResolution, setVideoResolution] = useState("");
+  const [picture, setPicture] = useState<PictureAdjustments>(() => {
+    if (typeof window === "undefined") return DEFAULT_PICTURE;
+    try {
+      const saved = localStorage.getItem("cinema-picture-adjustments");
+      return saved ? { ...DEFAULT_PICTURE, ...JSON.parse(saved) } : DEFAULT_PICTURE;
+    } catch { return DEFAULT_PICTURE; }
+  });
 
   const activeSource = movie.sources.find((source) => source.url === sourceUrl) ?? movie.sources[0];
   const isHls = activeSource?.kind === "hls" || isHlsUrl(sourceUrl);
@@ -138,8 +155,8 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate, onPosterGener
     : activeSource?.quality ?? "أصلي";
 
   const activeCue = useMemo(
-    () => subtitleTrack ? cues.find((cue) => currentTime >= cue.start && currentTime <= cue.end) : undefined,
-    [cues, currentTime, subtitleTrack],
+    () => subtitleTrack ? cues.find((cue) => currentTime - subtitleDelay >= cue.start && currentTime - subtitleDelay <= cue.end) : undefined,
+    [cues, currentTime, subtitleDelay, subtitleTrack],
   );
 
   const mediaDetails = useMemo<MediaDetails>(() => {
@@ -225,6 +242,12 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate, onPosterGener
   useEffect(() => {
     localStorage.setItem("cinema-subtitle-style", JSON.stringify(subtitleStyle));
   }, [subtitleStyle]);
+
+  useEffect(() => {
+    localStorage.setItem("cinema-picture-adjustments", JSON.stringify(picture));
+  }, [picture]);
+
+  useEffect(() => () => subtitleObjectUrlsRef.current.forEach(URL.revokeObjectURL), []);
 
   useEffect(() => {
     if (!subtitleTrack) return;
@@ -394,6 +417,39 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate, onPosterGener
       else await video.requestPictureInPicture();
     } catch { showStatus("PiP غير متاح"); }
   }, [showStatus]);
+
+  const openRemotePlayback = useCallback(async () => {
+    const video = videoRef.current as RemoteVideoElement | null;
+    if (!video) return;
+    try {
+      if (typeof video.webkitShowPlaybackTargetPicker === "function") {
+        video.webkitShowPlaybackTargetPicker();
+        return;
+      }
+      if (video.remote?.prompt) {
+        await video.remote.prompt();
+        return;
+      }
+      showStatus("استخدم Cast من قائمة المتصفح");
+    } catch {
+      showStatus("لم يتم العثور على تلفاز متاح");
+    }
+  }, [showStatus]);
+
+  function loadSubtitleFiles(files: FileList | null) {
+    if (!files?.length) return;
+    const tracks = Array.from(files).filter((file) => /\.(srt|vtt)$/i.test(file.name)).map((file) => {
+      const url = URL.createObjectURL(file);
+      subtitleObjectUrlsRef.current.push(url);
+      return { label: file.name, language: "local", url };
+    });
+    if (!tracks.length) return;
+    setLocalSubtitles((current) => [...current, ...tracks]);
+    setSubtitleTrack(tracks[0]);
+    setPanel("subtitles");
+    setSettingsOpen(true);
+    showStatus("تم تحميل الترجمة");
+  }
 
   useEffect(() => {
     const onFullscreen = () => setIsFullscreen(Boolean(document.fullscreenElement));
@@ -606,8 +662,13 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate, onPosterGener
         poster={movie.poster}
         crossOrigin={isHls ? "anonymous" : undefined}
         className="size-full transition-transform duration-300"
-        style={{ objectFit: fit, transform: `scale(${zoom / 100})` }}
+        style={{
+          objectFit: fit,
+          transform: `scale(${zoom / 100})`,
+          filter: `brightness(${100 + picture.brightness}%) contrast(${100 + picture.contrast}%) saturate(${100 + picture.saturation}%) sepia(${Math.abs(picture.temperature) * .18}%) hue-rotate(${picture.temperature * -.18}deg)`,
+        }}
         playsInline
+        disableRemotePlayback={false}
         preload="metadata"
         onClick={togglePlay}
         onPlay={() => { setIsPlaying(true); if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing"; showControls(); emitHistory(); }}
@@ -684,9 +745,11 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate, onPosterGener
           <span className="mr-1 hidden text-[10px] text-zinc-300 min-[380px]:inline sm:text-xs" dir="ltr">{formatTime(currentTime)} / {formatTime(duration)}</span>
 
           <div className="ml-auto flex items-center gap-0.5 sm:gap-1" dir="ltr">
+            <input ref={subtitleInputRef} type="file" accept=".srt,.vtt,text/vtt" multiple hidden onChange={(event) => loadSubtitleFiles(event.target.files)} />
             {activeSource && !isHls && <a className="control-button hidden sm:inline-flex" href={activeSource.url} download aria-label="تنزيل الفيلم"><Download size={19} /></a>}
             <button className={`control-button ${subtitleTrack ? "text-rose-400" : ""}`} onClick={() => setSubtitleTrack((track) => track ? null : (movie.subtitles[0] ?? null))} aria-label="الترجمة"><Captions size={21} /></button>
             <button className="control-button hidden sm:inline-flex" onClick={togglePiP} aria-label="صورة داخل صورة"><PictureInPicture size={19} /></button>
+            <button className="control-button" onClick={() => void openRemotePlayback()} aria-label="عرض على التلفاز" title="عرض على التلفاز / AirPlay / Cast"><Cast size={19} /></button>
             <div className="relative">
               <button className={`control-button ${settingsOpen ? "bg-white/15" : ""}`} onClick={() => { setSettingsOpen((value) => !value); setPanel("main"); }} aria-label="الإعدادات"><Settings size={20} /></button>
               {settingsOpen && (
@@ -709,8 +772,14 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate, onPosterGener
                   setFit={setFit}
                   subtitleTrack={subtitleTrack}
                   setSubtitleTrack={setSubtitleTrack}
+                  subtitleTracks={[...movie.subtitles, ...localSubtitles]}
+                  subtitleDelay={subtitleDelay}
+                  setSubtitleDelay={setSubtitleDelay}
+                  openSubtitlePicker={() => subtitleInputRef.current?.click()}
                   subtitleStyle={subtitleStyle}
                   setSubtitleStyle={setSubtitleStyle}
+                  picture={picture}
+                  setPicture={setPicture}
                   details={mediaDetails}
                   hlsEngine={hlsEngine}
                   onClose={() => setSettingsOpen(false)}
@@ -744,8 +813,14 @@ function SettingsMenu(props: {
   setFit: (fit: "contain" | "cover") => void;
   subtitleTrack: SubtitleTrack | null;
   setSubtitleTrack: (track: SubtitleTrack | null) => void;
+  subtitleTracks: SubtitleTrack[];
+  subtitleDelay: number;
+  setSubtitleDelay: (delay: number) => void;
+  openSubtitlePicker: () => void;
   subtitleStyle: SubtitleStyle;
   setSubtitleStyle: (style: SubtitleStyle) => void;
+  picture: PictureAdjustments;
+  setPicture: (picture: PictureAdjustments) => void;
   details: MediaDetails;
   hlsEngine: string;
   onClose: () => void;
@@ -769,6 +844,7 @@ function SettingsMenu(props: {
             <SettingRow icon={<Gauge size={17} />} label="الجودة" value={currentQuality} onClick={() => setPanel("quality")} />
             <SettingRow icon={<FastForward size={17} />} label="سرعة التشغيل" value={`${props.speed}×`} onClick={() => setPanel("speed")} />
             <SettingRow icon={<Captions size={17} />} label="الترجمة" value={props.subtitleTrack?.label ?? "إيقاف"} onClick={() => setPanel("subtitles")} />
+            <SettingRow icon={<SlidersHorizontal size={17} />} label="ضبط الصورة" value="متقدم" onClick={() => setPanel("picture")} />
             <SettingRow icon={<Info size={17} />} label="تفاصيل الوسائط" value={props.details.type} onClick={() => setPanel("details")} />
             <div className="mt-2 border-t border-white/8 pt-2">
               <div className="mb-2 flex items-center gap-2 px-2 text-xs font-bold"><ZoomIn size={16} className="text-rose-400" /> تكبير الصورة <span className="mr-auto text-zinc-500">{props.zoom}%</span></div>
@@ -807,12 +883,17 @@ function SettingsMenu(props: {
         {panel === "subtitles" && (
           <>
             <ChoiceRow label="إيقاف الترجمة" active={!props.subtitleTrack} onClick={() => props.setSubtitleTrack(null)} />
-            {props.movie.subtitles.map((track) => <ChoiceRow key={track.url} label={track.label} active={track.url === props.subtitleTrack?.url} onClick={() => props.setSubtitleTrack(track)} />)}
+            {props.subtitleTracks.map((track) => <ChoiceRow key={track.url} label={track.label} active={track.url === props.subtitleTrack?.url} onClick={() => props.setSubtitleTrack(track)} />)}
+            <button onClick={props.openSubtitlePicker} className="mt-2 flex w-full items-center gap-3 rounded-xl bg-white/5 px-3 py-3 text-xs font-bold text-cyan-200 hover:bg-white/10"><FileText size={16} /> تحميل ترجمة SRT أو VTT</button>
+            <div className="mt-3 rounded-xl bg-black/20 p-3">
+              <RangeSetting label="توقيت الترجمة" value={`${props.subtitleDelay > 0 ? "+" : ""}${props.subtitleDelay.toFixed(1)} ث`} min={-10} max={10} step={.1} valueNumber={props.subtitleDelay} onChange={props.setSubtitleDelay} />
+            </div>
             <button onClick={() => setPanel("appearance")} className="mt-2 flex w-full items-center gap-3 rounded-xl border-t border-white/8 px-3 py-3 text-xs font-bold text-rose-300 hover:bg-white/5"><Settings size={16} /> تخصيص شكل الترجمة <span className="mr-auto">‹</span></button>
           </>
         )}
 
         {panel === "appearance" && <SubtitleAppearance style={props.subtitleStyle} onChange={props.setSubtitleStyle} />}
+        {panel === "picture" && <PictureAdjustmentPanel value={props.picture} onChange={props.setPicture} />}
         {panel === "details" && <MediaDetailsPanel details={props.details} hlsEngine={props.hlsEngine} poster={props.movie.poster} />}
       </div>
     </div>
@@ -887,8 +968,19 @@ function SubtitleAppearance({ style, onChange }: { style: SubtitleStyle; onChang
   );
 }
 
-function RangeSetting({ label, value, min, max, valueNumber, onChange }: { label: string; value: string; min: number; max: number; valueNumber: number; onChange: (value: number) => void }) {
-  return <label className="block"><span className="mb-2 flex justify-between"><span>{label}</span><span className="text-zinc-500">{value}</span></span><input className="w-full" type="range" min={min} max={max} value={valueNumber} onChange={(event) => onChange(Number(event.target.value))} /></label>;
+function PictureAdjustmentPanel({ value, onChange }: { value: PictureAdjustments; onChange: (value: PictureAdjustments) => void }) {
+  const set = (key: keyof PictureAdjustments, amount: number) => onChange({ ...value, [key]: amount });
+  return <div className="space-y-4 px-2 py-1 text-[11px]">
+    <RangeSetting label="السطوع" value={`${value.brightness > 0 ? "+" : ""}${value.brightness}`} min={-50} max={50} valueNumber={value.brightness} onChange={(amount) => set("brightness", amount)} />
+    <RangeSetting label="التباين" value={`${value.contrast > 0 ? "+" : ""}${value.contrast}`} min={-50} max={50} valueNumber={value.contrast} onChange={(amount) => set("contrast", amount)} />
+    <RangeSetting label="تشبع الألوان" value={`${value.saturation > 0 ? "+" : ""}${value.saturation}`} min={-100} max={100} valueNumber={value.saturation} onChange={(amount) => set("saturation", amount)} />
+    <RangeSetting label="حرارة اللون" value={`${value.temperature > 0 ? "+" : ""}${value.temperature}`} min={-50} max={50} valueNumber={value.temperature} onChange={(amount) => set("temperature", amount)} />
+    <button onClick={() => onChange(DEFAULT_PICTURE)} className="flex w-full items-center justify-center gap-2 rounded-lg border border-white/10 p-2 text-zinc-300 hover:bg-white/5"><RotateCcw size={14} /> استعادة الصورة الأصلية</button>
+  </div>;
+}
+
+function RangeSetting({ label, value, min, max, step = 1, valueNumber, onChange }: { label: string; value: string; min: number; max: number; step?: number; valueNumber: number; onChange: (value: number) => void }) {
+  return <label className="block"><span className="mb-2 flex justify-between"><span>{label}</span><span className="text-zinc-500">{value}</span></span><input className="w-full" type="range" min={min} max={max} step={step} value={valueNumber} onChange={(event) => onChange(Number(event.target.value))} /></label>;
 }
 
 function panelTitle(panel: SettingsPanel) {
@@ -898,6 +990,7 @@ function panelTitle(panel: SettingsPanel) {
     speed: "سرعة التشغيل",
     subtitles: "الترجمة",
     appearance: "تخصيص الترجمة",
+    picture: "ضبط الصورة",
     details: "تفاصيل الوسائط",
   }[panel];
 }

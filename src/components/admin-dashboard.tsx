@@ -61,6 +61,7 @@ export function AdminDashboard() {
   const [autoClassify, setAutoClassify] = useState(true);
   const [importMessage, setImportMessage] = useState("");
   const [importError, setImportError] = useState("");
+  const [dashboardWarning, setDashboardWarning] = useState("");
 
   const loadDashboard = useCallback(async () => {
     const [catalogResponse, statsResponse, historyResponse] = await Promise.all([
@@ -72,12 +73,27 @@ export function AdminDashboard() {
       setAuthenticated(false);
       return;
     }
-    const catalog = await readJsonResponse<{ movies?: Movie[] }>(catalogResponse, "تحميل المكتبة");
-    const analytics = await readJsonResponse<AdminStats>(statsResponse, "تحميل الإحصائيات");
-    const historyPayload = await readJsonResponse<{ history?: AdminHistoryEntry[] }>(historyResponse, "تحميل سجل المشاهدة");
-    setMovies(catalog.movies ?? []);
-    setStats(analytics);
-    setHistory(historyPayload.history ?? []);
+    const outcomes = await Promise.allSettled([
+      (async () => {
+        const payload = await readJsonResponse<{ movies?: Movie[]; error?: string }>(catalogResponse, "تحميل المكتبة");
+        if (!catalogResponse.ok) throw new Error(payload.error || `تعذر تحميل المكتبة (HTTP ${catalogResponse.status}).`);
+        setMovies(payload.movies ?? []);
+      })(),
+      (async () => {
+        const payload = await readJsonResponse<AdminStats & { error?: string }>(statsResponse, "تحميل الإحصائيات");
+        if (!statsResponse.ok) throw new Error(payload.error || `تعذر تحميل الإحصائيات (HTTP ${statsResponse.status}).`);
+        setStats(payload);
+      })(),
+      (async () => {
+        const payload = await readJsonResponse<{ history?: AdminHistoryEntry[]; error?: string }>(historyResponse, "تحميل سجل المشاهدة");
+        if (!historyResponse.ok) throw new Error(payload.error || `تعذر تحميل سجل المشاهدة (HTTP ${historyResponse.status}).`);
+        setHistory(payload.history ?? []);
+      })(),
+    ]);
+    const failures = outcomes.flatMap((outcome) => outcome.status === "rejected"
+      ? [outcome.reason instanceof Error ? outcome.reason.message : "تعذر تحميل جزء من لوحة الإدارة."]
+      : []);
+    setDashboardWarning(failures.join(" "));
   }, []);
 
   useEffect(() => {
@@ -310,6 +326,7 @@ export function AdminDashboard() {
           <Link href="/" className="rounded-xl border border-white/10 px-4 py-2 text-xs font-bold hover:bg-white/5"><Play className="ml-2 inline" size={15} />المشغل</Link>
           <button onClick={() => void logout()} className="rounded-xl border border-red-400/20 px-4 py-2 text-xs font-bold text-red-200 hover:bg-red-500/10"><LogOut className="ml-2 inline" size={15} />خروج</button>
         </header>
+        {dashboardWarning && <p className="mb-5 rounded-2xl border border-amber-400/20 bg-amber-500/10 p-3 text-xs leading-6 text-amber-100">{dashboardWarning} يمكنك متابعة إدارة المكتبة؛ تعطل قسم واحد لا يوقف بقية اللوحة.</p>}
 
         <section className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-5">
           <StatCard icon={<Clapperboard />} label="الأفلام" value={stats?.movieCount ?? 0} />
