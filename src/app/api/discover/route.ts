@@ -130,7 +130,6 @@ async function serperSearch(query: string, includeDomains: readonly string[] = L
   const apiKey = process.env.SERPER_API_KEY;
   if (!apiKey) throw new Error("SERPER_API_KEY is not configured");
 
-  const domainQuery = includeDomains.map((domain) => `site:${domain}`).join(" OR ");
   const response = await fetch("https://google.serper.dev/search", {
     method: "POST",
     headers: {
@@ -138,7 +137,7 @@ async function serperSearch(query: string, includeDomains: readonly string[] = L
       "X-API-KEY": apiKey,
     },
     body: JSON.stringify({
-      q: `${query.slice(0, 390)} (${domainQuery})`,
+      q: query.slice(0, 390),
       gl: "bh",
       num: 10,
     }),
@@ -146,12 +145,14 @@ async function serperSearch(query: string, includeDomains: readonly string[] = L
   });
   if (!response.ok) throw new Error("Serper search failed");
   const payload = await response.json() as { organic?: SerperOrganicResult[] };
-  return (payload.organic ?? []).map((result, index) => ({
-    title: result.title,
-    url: result.link,
-    content: result.snippet,
-    score: 1 / Math.max(result.position ?? index + 1, 1),
-  }));
+  return (payload.organic ?? [])
+    .filter((result) => result.link && matchesDomains(result.link, includeDomains))
+    .map((result, index) => ({
+      title: result.title,
+      url: result.link,
+      content: result.snippet,
+      score: 1 / Math.max(result.position ?? index + 1, 1),
+    }));
 }
 
 function searchWeb(provider: SearchProvider, query: string, includeDomains?: readonly string[]) {
@@ -160,13 +161,17 @@ function searchWeb(provider: SearchProvider, query: string, includeDomains?: rea
     : tavilySearch(query, includeDomains);
 }
 
-function isLegalUrl(value: string) {
+function matchesDomains(value: string, domains: readonly string[]) {
   try {
     const hostname = new URL(value).hostname.toLowerCase().replace(/^www\./, "");
-    return LEGAL_DOMAINS.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`));
+    return domains.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`));
   } catch {
     return false;
   }
+}
+
+function isLegalUrl(value: string) {
+  return matchesDomains(value, LEGAL_DOMAINS);
 }
 
 function providerFor(url: string) {
