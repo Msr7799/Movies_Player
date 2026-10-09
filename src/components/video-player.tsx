@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { createPortal } from "react-dom";
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -405,9 +406,23 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate, onPosterGener
   const toggleFullscreen = useCallback(async () => {
     const container = containerRef.current;
     if (!container) return;
-    if (!document.fullscreenElement) await container.requestFullscreen();
-    else await document.exitFullscreen();
-  }, []);
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else if (typeof container.requestFullscreen === "function") {
+        await container.requestFullscreen();
+      } else {
+        // Older iPhone Safari supports native video fullscreen, not div fullscreen.
+        const nativeVideo = videoRef.current as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
+        if (typeof nativeVideo?.webkitEnterFullscreen === "function") nativeVideo.webkitEnterFullscreen();
+        else showStatus("ملء الشاشة غير مدعوم في هذا المتصفح");
+      }
+    } catch {
+      const nativeVideo = videoRef.current as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
+      if (typeof nativeVideo?.webkitEnterFullscreen === "function") nativeVideo.webkitEnterFullscreen();
+      else showStatus("تعذر فتح ملء الشاشة");
+    }
+  }, [showStatus]);
 
   const togglePiP = useCallback(async () => {
     const video = videoRef.current;
@@ -461,6 +476,7 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate, onPosterGener
     const onKey = (event: KeyboardEvent) => {
       if (["INPUT", "SELECT", "TEXTAREA"].includes((event.target as HTMLElement)?.tagName)) return;
       const key = event.key.toLowerCase();
+      if (key === "escape") setSettingsOpen(false);
       if ([" ", "k", "arrowleft", "arrowright", "m", "f", "c", "j", "l"].includes(key)) event.preventDefault();
       if (key === " " || key === "k") togglePlay();
       if (key === "arrowleft" || key === "j") skip(-10);
@@ -649,10 +665,46 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate, onPosterGener
     );
   }
 
+  // Outside fullscreen, render settings at document level so the video player's
+  // overflow clipping and animated ancestors cannot cut off mobile options.
+  const settingsMenu = settingsOpen ? (
+    <SettingsMenu
+                  panel={panel}
+                  setPanel={setPanel}
+                  movie={movie}
+                  sourceUrl={sourceUrl}
+                  changeQuality={changeQuality}
+                  isHls={isHls}
+                  hlsLevels={hlsLevels}
+                  hlsLevel={hlsLevel}
+                  hlsAuto={hlsAuto}
+                  changeHlsLevel={changeHlsLevel}
+                  speed={speed}
+                  setSpeed={(value) => { setSpeed(value); if (videoRef.current) videoRef.current.playbackRate = value; }}
+                  zoom={zoom}
+                  setZoom={setZoom}
+                  fit={fit}
+                  setFit={setFit}
+                  subtitleTrack={subtitleTrack}
+                  setSubtitleTrack={setSubtitleTrack}
+                  subtitleTracks={[...movie.subtitles, ...localSubtitles]}
+                  subtitleDelay={subtitleDelay}
+                  setSubtitleDelay={setSubtitleDelay}
+                  openSubtitlePicker={() => subtitleInputRef.current?.click()}
+                  subtitleStyle={subtitleStyle}
+                  setSubtitleStyle={setSubtitleStyle}
+                  picture={picture}
+                  setPicture={setPicture}
+                  details={mediaDetails}
+                  hlsEngine={hlsEngine}
+                  onClose={() => setSettingsOpen(false)}
+    />
+  ) : null;
+
   return (
     <div
       ref={containerRef}
-      className={`player-shadow group relative aspect-video min-h-[190px] overflow-hidden bg-black sm:min-h-[260px] ${isFullscreen ? "rounded-none" : "rounded-2xl sm:rounded-3xl"}`}
+      className={`player-shadow group relative aspect-video min-h-0 w-full overflow-hidden bg-black sm:min-h-[260px] ${isFullscreen ? "rounded-none" : "rounded-2xl sm:rounded-3xl"}`}
       onMouseMove={showControls}
       onMouseLeave={() => { if (isPlaying && !settingsOpen) setControlsVisible(false); }}
       onDoubleClick={() => void toggleFullscreen()}
@@ -742,7 +794,7 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate, onPosterGener
               aria-label="مستوى الصوت"
             />
           </div>
-          <span className="mr-1 hidden text-[10px] text-zinc-300 min-[380px]:inline sm:text-xs" dir="ltr">{formatTime(currentTime)} / {formatTime(duration)}</span>
+          <span className="mr-1 hidden text-[10px] text-zinc-300 min-[420px]:inline sm:text-xs" dir="ltr">{formatTime(currentTime)} / {formatTime(duration)}</span>
 
           <div className="ml-auto flex items-center gap-0.5 sm:gap-1" dir="ltr">
             <input ref={subtitleInputRef} type="file" accept=".srt,.vtt,text/vtt" multiple hidden onChange={(event) => loadSubtitleFiles(event.target.files)} />
@@ -751,40 +803,15 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate, onPosterGener
             <button className="control-button hidden sm:inline-flex" onClick={togglePiP} aria-label="صورة داخل صورة"><PictureInPicture size={19} /></button>
             <button className="control-button" onClick={() => void openRemotePlayback()} aria-label="عرض على التلفاز" title="عرض على التلفاز / AirPlay / Cast"><Cast size={19} /></button>
             <div className="relative">
-              <button className={`control-button ${settingsOpen ? "bg-white/15" : ""}`} onClick={() => { setSettingsOpen((value) => !value); setPanel("main"); }} aria-label="الإعدادات"><Settings size={20} /></button>
-              {settingsOpen && (
-                <SettingsMenu
-                  panel={panel}
-                  setPanel={setPanel}
-                  movie={movie}
-                  sourceUrl={sourceUrl}
-                  changeQuality={changeQuality}
-                  isHls={isHls}
-                  hlsLevels={hlsLevels}
-                  hlsLevel={hlsLevel}
-                  hlsAuto={hlsAuto}
-                  changeHlsLevel={changeHlsLevel}
-                  speed={speed}
-                  setSpeed={(value) => { setSpeed(value); if (videoRef.current) videoRef.current.playbackRate = value; }}
-                  zoom={zoom}
-                  setZoom={setZoom}
-                  fit={fit}
-                  setFit={setFit}
-                  subtitleTrack={subtitleTrack}
-                  setSubtitleTrack={setSubtitleTrack}
-                  subtitleTracks={[...movie.subtitles, ...localSubtitles]}
-                  subtitleDelay={subtitleDelay}
-                  setSubtitleDelay={setSubtitleDelay}
-                  openSubtitlePicker={() => subtitleInputRef.current?.click()}
-                  subtitleStyle={subtitleStyle}
-                  setSubtitleStyle={setSubtitleStyle}
-                  picture={picture}
-                  setPicture={setPicture}
-                  details={mediaDetails}
-                  hlsEngine={hlsEngine}
-                  onClose={() => setSettingsOpen(false)}
-                />
-              )}
+              <button className={`control-button ${settingsOpen ? "bg-white/15" : ""}`} onClick={() => { setSettingsOpen((value) => !value); setPanel("main"); }} aria-label="الإعدادات" aria-haspopup="dialog" aria-expanded={settingsOpen}><Settings size={20} /></button>
+              {settingsOpen && (isFullscreen
+                ? settingsMenu
+                : createPortal(
+                  <div className="fixed inset-0 z-[95]">
+                    <button type="button" onClick={() => setSettingsOpen(false)} className="absolute inset-0 size-full cursor-default bg-black/65 sm:bg-black/20" aria-label="إغلاق إعدادات المشغل" />
+                    {settingsMenu}
+                  </div>, document.body
+                ))}
             </div>
             <button className="control-button" onClick={() => void toggleFullscreen()} aria-label="ملء الشاشة">{isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}</button>
           </div>
@@ -832,13 +859,13 @@ function SettingsMenu(props: {
     : props.movie.sources.find((source) => source.url === props.sourceUrl)?.quality ?? "أصلي";
 
   return (
-    <div className="glass fixed inset-x-3 bottom-20 z-50 max-h-[min(76dvh,500px)] overflow-hidden rounded-2xl text-right text-white shadow-2xl sm:absolute sm:inset-x-auto sm:bottom-14 sm:left-0 sm:z-auto sm:w-[min(340px,calc(100vw-32px))]" dir="rtl" onDoubleClick={(event) => event.stopPropagation()}>
+    <div role="dialog" aria-modal="true" aria-label="إعدادات مشغل الفيديو" className="glass fixed flex flex-col inset-x-2 bottom-[max(8px,env(safe-area-inset-bottom))] z-[100] max-h-[min(78dvh,540px)] overflow-hidden rounded-2xl text-right text-white shadow-2xl sm:absolute sm:inset-x-auto sm:bottom-5 sm:left-5 sm:z-auto sm:w-[min(340px,calc(100vw-32px))]" dir="rtl" onDoubleClick={(event) => event.stopPropagation()}>
       <div className="flex h-12 items-center border-b border-white/8 px-3">
         {panel !== "main" && <button onClick={() => setPanel(panel === "appearance" ? "subtitles" : "main")} className="rounded-lg px-2 py-1 text-lg text-zinc-400 hover:bg-white/10">‹</button>}
         <span className="px-2 text-xs font-bold">{panelTitle(panel)}</span>
         <button className="mr-auto rounded-lg p-1.5 text-zinc-500 hover:bg-white/10" onClick={props.onClose}><X size={16} /></button>
       </div>
-      <div className="max-h-[430px] overflow-y-auto p-2">
+      <div className="min-h-0 flex-1 overscroll-contain overflow-y-auto p-2">
         {panel === "main" && (
           <>
             <SettingRow icon={<Gauge size={17} />} label="الجودة" value={currentQuality} onClick={() => setPanel("quality")} />

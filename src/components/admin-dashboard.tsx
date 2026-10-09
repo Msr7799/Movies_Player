@@ -445,20 +445,20 @@ export function AdminDashboard() {
   }
 
   return (
-    <main className="min-h-screen px-3 py-5 sm:px-7 sm:py-8">
+    <main className="min-h-screen min-w-0 overflow-x-clip px-2.5 py-4 min-[360px]:px-3 sm:px-7 sm:py-8">
       <div className="mx-auto max-w-7xl">
         <header className="mb-6 flex flex-wrap items-center gap-3">
-          <div className="min-w-0 flex-1"><p className="text-xs font-bold text-rose-300">ADMIN ACCESS</p><h1 className="mt-1 text-2xl font-black">لوحة إدارة سينما</h1></div>
-          <button onClick={() => setEditorPanelOpen((value) => !value)} className="group relative grid size-10 place-items-center rounded-xl border border-white/10 bg-white/5 shadow-lg transition duration-700 ease-[cubic-bezier(.22,1,.36,1)] hover:-translate-y-0.5 hover:border-rose-300/30 hover:shadow-rose-950/30" title={editorPanelOpen ? "إغلاق أدوات النشر" : "فتح أدوات النشر"}>
+          <div className="min-w-0 flex-1"><p className="text-xs font-bold text-rose-300">ADMIN ACCESS</p><h1 className="mt-1 text-xl font-black sm:text-2xl">لوحة إدارة سينما</h1></div>
+          <button onClick={() => setEditorPanelOpen((value) => !value)} className="group relative grid size-11 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/5 shadow-lg transition duration-700 ease-[cubic-bezier(.22,1,.36,1)] hover:-translate-y-0.5 hover:border-rose-300/30 hover:shadow-rose-950/30" title={editorPanelOpen ? "إغلاق أدوات النشر" : "فتح أدوات النشر"}>
             <Image src={editorPanelOpen ? "/sidebar-on.png" : "/sidebar-off.png"} alt="" width={24} height={24} className="transition duration-500 group-hover:scale-110 group-hover:opacity-0" />
             <Image src={editorPanelOpen ? "/sidebar-on-hover.png" : "/sidebar-off-hover.png"} alt="" width={24} height={24} className="absolute scale-90 opacity-0 transition duration-500 group-hover:scale-110 group-hover:opacity-100" />
           </button>
-          <Link href="/" className="rounded-xl border border-white/10 px-4 py-2 text-xs font-bold hover:bg-white/5"><Play className="ml-2 inline" size={15} />المشغل</Link>
-          <button onClick={() => void logout()} className="rounded-xl border border-red-400/20 px-4 py-2 text-xs font-bold text-red-200 hover:bg-red-500/10"><LogOut className="ml-2 inline" size={15} />خروج</button>
+          <Link href="/" className="flex min-h-11 items-center rounded-xl border border-white/10 px-3 py-2 text-xs font-bold hover:bg-white/5"><Play className="ml-2 inline" size={15} />المشغل</Link>
+          <button onClick={() => void logout()} className="flex min-h-11 items-center rounded-xl border border-red-400/20 px-3 py-2 text-xs font-bold text-red-200 hover:bg-red-500/10"><LogOut className="ml-2 inline" size={15} />خروج</button>
         </header>
         {dashboardWarning && <p className="mb-5 rounded-2xl border border-amber-400/20 bg-amber-500/10 p-3 text-xs leading-6 text-amber-100">{dashboardWarning} يمكنك متابعة إدارة المكتبة؛ تعطل قسم واحد لا يوقف بقية اللوحة.</p>}
 
-        <section className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <section className="mb-6 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-5">
           <StatCard icon={<Clapperboard />} label="الأفلام" value={stats?.movieCount ?? 0} />
           <StatCard icon={<Users />} label="زوار شغّلوا أفلامًا" value={stats?.uniqueVisitors ?? 0} />
           <StatCard icon={<Eye />} label="زيارات يومية مسجلة" value={stats?.visits ?? 0} />
@@ -466,9 +466,9 @@ export function AdminDashboard() {
           <StatCard icon={<Play />} label="سجلات التشغيل" value={stats?.historyCount ?? 0} />
         </section>
 
-        <div className="admin-dashboard-grid gap-6" data-editor-open={editorPanelOpen}>
+        <div className="admin-dashboard-grid min-w-0 gap-4 sm:gap-6" data-editor-open={editorPanelOpen}>
           <div className="admin-editor-panel overflow-hidden transition-[max-height,opacity,transform,filter] duration-700 ease-[cubic-bezier(.22,1,.36,1)]">
-          <form onSubmit={saveMovie} className="glass h-fit min-w-[min(390px,calc(100vw-40px))] rounded-3xl p-5">
+          <form onSubmit={saveMovie} className="glass h-fit w-full min-w-0 rounded-2xl p-3.5 min-[360px]:p-4 sm:rounded-3xl sm:p-5">
             <div className="mb-5 flex items-center gap-3"><span className="navy-glass grid size-10 place-items-center rounded-xl">{editor.id ? <Pencil size={18} /> : <Plus size={18} />}</span><div><h2 className="text-sm font-black">{editor.id ? "تعديل الفيلم" : "نشر فيلم جديد"}</h2><p className="mt-1 text-[10px] text-zinc-500">يظهر فورًا لكل زوار الموقع</p></div>{editor.id && <button type="button" onClick={() => setEditor(EMPTY_EDITOR)} className="mr-auto rounded-lg p-2 text-zinc-500 hover:bg-white/10"><X size={17} /></button>}</div>
             <EditorInput label="اسم الفيلم" value={editor.title} onChange={(title) => setEditor({ ...editor, title })} required />
             <label className="mb-4 block text-xs font-bold text-zinc-400">نبذة الفيلم<textarea value={editor.description} onChange={(event) => setEditor({ ...editor, description: event.target.value })} rows={4} className="mt-2 w-full rounded-xl border border-white/10 bg-black/25 p-3 text-sm leading-6 outline-none focus:border-rose-400" placeholder="وصف مختصر يظهر في تفاصيل الفيلم..." /></label>
@@ -491,8 +491,8 @@ export function AdminDashboard() {
           </div>
 
           <div className="space-y-6">
-            <section className="glass rounded-3xl p-5">
-              <div className="mb-4 flex flex-wrap items-center gap-2"><h2 className="ml-auto text-sm font-black">المكتبة العامة</h2><div className="relative min-w-52 flex-1"><Search className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-600" size={15} /><input value={libraryQuery} onChange={(event) => setLibraryQuery(event.target.value)} placeholder="ابحث بالاسم أو التصنيف..." className="h-10 w-full rounded-xl border border-white/10 bg-black/25 pr-9 pl-3 text-xs outline-none focus:border-rose-400" /></div><button disabled={busy || visibleMovies.length === 0} onClick={() => void classifySelected()} className="rounded-xl bg-violet-500/10 px-3 py-2 text-[11px] font-bold text-violet-200"><Sparkles className="ml-1 inline" size={14} />تصنيف Gemini {selectedMovies.length ? `(${selectedMovies.length})` : "للنتائج"}</button></div>
+            <section className="glass min-w-0 rounded-2xl p-3.5 min-[360px]:p-4 sm:rounded-3xl sm:p-5">
+              <div className="mb-4 flex flex-wrap items-center gap-2"><h2 className="ml-auto text-sm font-black">المكتبة العامة</h2><div className="relative min-w-0 basis-full grow sm:min-w-40 sm:basis-44"><Search className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-600" size={15} /><input value={libraryQuery} onChange={(event) => setLibraryQuery(event.target.value)} placeholder="ابحث بالاسم أو التصنيف..." className="h-10 w-full rounded-xl border border-white/10 bg-black/25 pr-9 pl-3 text-xs outline-none focus:border-rose-400" /></div><button disabled={busy || visibleMovies.length === 0} onClick={() => void classifySelected()} className="rounded-xl bg-violet-500/10 px-3 py-2 text-[11px] font-bold text-violet-200"><Sparkles className="ml-1 inline" size={14} />تصنيف Gemini {selectedMovies.length ? `(${selectedMovies.length})` : "للنتائج"}</button></div>
               <div className="grid gap-3 md:grid-cols-2">{visibleMovies.map((movie) => <AdminMovieCard key={movie.id} movie={movie} selected={selectedMovies.includes(movie.id)} onToggle={() => setSelectedMovies((current) => current.includes(movie.id) ? current.filter((id) => id !== movie.id) : [...current, movie.id])} onEdit={() => editMovie(movie)} onDelete={() => void deleteMovie(movie)} />)}{visibleMovies.length === 0 && <p className="col-span-full rounded-xl border border-dashed border-white/10 p-6 text-center text-xs text-zinc-500">لا توجد نتائج مطابقة.</p>}</div>
             </section>
 
@@ -534,7 +534,7 @@ export function AdminDashboard() {
 }
 
 function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: number }) {
-  return <div className="glass rounded-2xl p-4"><span className="text-rose-300">{icon}</span><strong className="mt-3 block text-2xl">{value.toLocaleString("ar-BH")}</strong><span className="mt-1 block text-[10px] text-zinc-500">{label}</span></div>;
+  return <div className="glass min-w-0 rounded-2xl p-3 sm:p-4"><span className="text-rose-300">{icon}</span><strong className="mt-3 block text-2xl">{value.toLocaleString("ar-BH")}</strong><span className="mt-1 block text-[10px] text-zinc-500">{label}</span></div>;
 }
 
 function EditorInput({ label, value, onChange, required = false, ltr = false }: { label: string; value: string; onChange: (value: string) => void; required?: boolean; ltr?: boolean }) {
@@ -542,5 +542,5 @@ function EditorInput({ label, value, onChange, required = false, ltr = false }: 
 }
 
 function AdminMovieCard({ movie, selected, onToggle, onEdit, onDelete }: { movie: Movie; selected: boolean; onToggle: () => void; onEdit: () => void; onDelete: () => void }) {
-  return <article className={`flex gap-3 rounded-2xl border bg-black/20 p-3 ${selected ? "border-violet-400/50" : "border-white/8"}`}><button onClick={onToggle} className={`grid size-6 shrink-0 place-items-center rounded-md border ${selected ? "border-violet-300 bg-violet-500/20 text-violet-200" : "border-white/10 text-zinc-600"}`} title="تحديد">{selected && <CheckSquare size={14} />}</button><span className="relative grid aspect-video w-24 shrink-0 place-items-center overflow-hidden rounded-xl bg-black">{movie.poster ? <Image src={movie.poster} alt="" fill sizes="96px" unoptimized className="object-cover" /> : <Clapperboard className="text-zinc-700" />}</span><div className="min-w-0 flex-1"><h3 className="line-clamp-2 text-xs font-black">{movie.title}</h3><p className="mt-1 truncate text-[9px] text-zinc-600" dir="ltr">{movie.sources[0]?.url}</p>{Boolean(movie.categories?.length) && <div className="mt-2 flex flex-wrap gap-1">{movie.categories?.slice(0, 3).map((category) => <span key={category} className="rounded-md bg-violet-500/10 px-1.5 py-1 text-[8px] text-violet-200">{MOVIE_CATEGORY_LABELS[category]}</span>)}</div>}<div className="mt-3 flex gap-2"><button onClick={onEdit} className="rounded-lg bg-white/7 px-2 py-1.5 text-[10px] hover:bg-white/12"><Pencil className="ml-1 inline" size={12} />تعديل</button><button onClick={onDelete} className="rounded-lg bg-red-500/10 px-2 py-1.5 text-[10px] text-red-200 hover:bg-red-500/20"><Trash2 className="ml-1 inline" size={12} />حذف</button></div></div></article>;
+  return <article className={`flex min-w-0 flex-wrap gap-2 rounded-2xl border bg-black/20 p-2.5 sm:flex-nowrap sm:gap-3 sm:p-3 ${selected ? "border-violet-400/50" : "border-white/8"}`}><button onClick={onToggle} className={`grid size-10 shrink-0 place-items-center rounded-lg border ${selected ? "border-violet-300 bg-violet-500/20 text-violet-200" : "border-white/10 text-zinc-600"}`} title="تحديد">{selected && <CheckSquare size={14} />}</button><span className="relative grid aspect-video w-20 shrink-0 place-items-center overflow-hidden rounded-xl bg-black sm:w-24">{movie.poster ? <Image src={movie.poster} alt="" fill sizes="96px" unoptimized className="object-cover" /> : <Clapperboard className="text-zinc-700" />}</span><div className="min-w-[130px] flex-1"><h3 className="line-clamp-2 text-xs font-black">{movie.title}</h3><p className="mt-1 truncate text-[9px] text-zinc-600" dir="ltr">{movie.sources[0]?.url}</p>{Boolean(movie.categories?.length) && <div className="mt-2 flex flex-wrap gap-1">{movie.categories?.slice(0, 3).map((category) => <span key={category} className="rounded-md bg-violet-500/10 px-1.5 py-1 text-[8px] text-violet-200">{MOVIE_CATEGORY_LABELS[category]}</span>)}</div>}<div className="mt-3 flex gap-2"><button onClick={onEdit} className="min-h-10 rounded-lg bg-white/7 px-3 py-2 text-xs hover:bg-white/12"><Pencil className="ml-1 inline" size={12} />تعديل</button><button onClick={onDelete} className="min-h-10 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-200 hover:bg-red-500/20"><Trash2 className="ml-1 inline" size={12} />حذف</button></div></div></article>;
 }

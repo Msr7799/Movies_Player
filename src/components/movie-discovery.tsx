@@ -112,7 +112,7 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
   }
 
   return (
-    <section className="glass mb-7 overflow-visible rounded-3xl p-3 transition-[padding,box-shadow] duration-700 ease-[cubic-bezier(.22,1,.36,1)] sm:p-4" aria-labelledby="ai-search-title">
+    <section id="movie-discovery" className="glass mb-7 scroll-mt-20 overflow-visible rounded-3xl p-3 transition-[padding,box-shadow] duration-700 ease-[cubic-bezier(.22,1,.36,1)] sm:p-4" aria-labelledby="ai-search-title">
       <div className={`grid overflow-hidden transition-[grid-template-rows,opacity,margin] duration-700 ease-[cubic-bezier(.22,1,.36,1)] ${optionsOpen ? "mb-4 grid-rows-[1fr] opacity-100" : "mb-0 grid-rows-[0fr] opacity-0"}`} aria-hidden={!optionsOpen}>
       <div className="min-h-0">
       <div className="flex flex-wrap items-start gap-3 px-1 pt-1">
@@ -160,13 +160,16 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
           <div className="relative min-w-0 flex-1">
           <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-rose-300" size={18} />
           <input
+            id="movie-discovery-input"
+            type="search"
+            enterKeyHint="search"
             value={query}
             onChange={(event) => changeQuery(event.target.value)}
             onFocus={() => { if (suggestions.length > 0) setSuggestionsOpen(true); }}
             onBlur={() => window.setTimeout(() => setSuggestionsOpen(false), 120)}
             onKeyDown={(event) => { if (event.key === "Escape") setSuggestionsOpen(false); }}
             placeholder="مثال: Veer-Zaara 2004 أو فيلم فير زارا"
-            className="h-12 w-full rounded-2xl border border-white/10 bg-black/30 pr-11 pl-4 text-sm outline-none transition placeholder:text-zinc-600 focus:border-rose-400/60"
+            className="h-12 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 pr-11 pl-4 text-base outline-none transition placeholder:text-zinc-600 focus:border-rose-400/60 sm:text-sm"
             maxLength={120}
             autoComplete="off"
             role="combobox"
@@ -201,7 +204,7 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
           <button
             type="submit"
             disabled={loading || query.trim().length < 2}
-            className="navy-glass flex h-12 items-center justify-center gap-2 rounded-2xl px-6 text-sm font-black transition hover:brightness-125 disabled:cursor-not-allowed disabled:opacity-45"
+            className="navy-glass flex h-12 w-full items-center justify-center gap-2 rounded-2xl px-6 text-sm font-black transition hover:brightness-125 disabled:cursor-not-allowed disabled:opacity-45 sm:w-auto"
           >
             {loading ? <LoaderCircle className="animate-spin" size={18} /> : <Sparkles size={18} />}
             {loading ? "بحث عميق..." : "ابحث الآن"}
@@ -214,7 +217,7 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
             className={`flex h-12 shrink-0 items-center justify-center gap-2 rounded-2xl border px-4 text-xs font-bold transition duration-500 ${optionsOpen ? "border-rose-400/35 bg-rose-500/10 text-rose-100" : "border-white/10 bg-white/[.035] text-zinc-400 hover:bg-white/[.07] hover:text-white"}`}
           >
             <SlidersHorizontal size={16} />
-            <span className="hidden sm:inline">{optionsOpen ? "إخفاء الخيارات" : "خيارات البحث"}</span>
+            <span>{optionsOpen ? "إخفاء الخيارات" : "الخيارات"}</span>
             <ChevronDown size={14} className={`transition-transform duration-700 ${optionsOpen ? "rotate-180" : ""}`} />
           </button>
         </div>
@@ -296,8 +299,8 @@ export function MovieDiscovery({ onPlay }: { onPlay: (result: DiscoveryResult) =
                     <div className="flex items-start gap-3">
                       <span className="navy-glass grid size-9 shrink-0 place-items-center rounded-xl text-xs font-black text-rose-100">{index + 1}</span>
                       <div className="min-w-0 flex-1">
-                        <div className="mb-1 flex flex-wrap items-center gap-2">
-                          <h3 className="line-clamp-1 text-sm font-bold">{result.title}</h3>
+                        <div className="mb-1 flex min-w-0 flex-wrap items-center gap-2">
+                          <h3 className="line-clamp-2 min-w-0 break-words text-sm font-bold">{result.title}</h3>
                           <span className="rounded-full bg-white/7 px-2 py-0.5 text-[9px] font-bold text-zinc-400">{result.provider}</span>
                           <span className="rounded-full border border-[#45658f]/50 bg-[#111d2e]/80 px-2 py-0.5 text-[9px] font-bold text-slate-200">
                             {result.contentType === "full_movie" ? "فيلم كامل" : result.contentType === "short_clip" ? "مقطع قصير" : "صفحة مشاهدة"}

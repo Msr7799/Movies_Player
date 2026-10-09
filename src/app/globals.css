@@ -84,7 +84,7 @@ input[type="range"] { accent-color: var(--accent); }
 }
 
 .admin-dashboard-grid[data-editor-open="true"] .admin-editor-panel {
-  max-height: 1600px;
+  max-height: 5000px;
   opacity: 1;
   transform: translateX(0) scale(1);
   filter: blur(0);
@@ -161,3 +161,61 @@ input[type="range"] { accent-color: var(--accent); }
   to { opacity: 1; transform: translateY(0); }
 }
 .animate-fade-up { animation: fade-up .45s ease-out both; }
+
+
+/* Mobile-first interaction and safe area refinements. */
+html { -webkit-text-size-adjust: 100%; scroll-padding-top: 5rem; }
+body { min-width: 0; }
+img, video, iframe { max-width: 100%; }
+button, input, select, textarea { min-width: 0; }
+input, select, textarea { max-width: 100%; }
+:focus-visible { outline: 2px solid #8fb0d1; outline-offset: 2px; }
+.mobile-bottom-nav { padding-bottom: max(.35rem, env(safe-area-inset-bottom)); }
+.mobile-nav-item {
+  display: flex;
+  min-height: 3.65rem;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: .2rem;
+  border-radius: .8rem;
+  font-size: .7rem;
+  font-weight: 700;
+  color: #c5d0de;
+  transition: background .15s, color .15s;
+}
+.mobile-nav-item:active, .mobile-nav-item:focus-visible { background: rgba(111,150,194,.16); color: white; }
+.mobile-library-sidebar { padding-bottom: max(.75rem, env(safe-area-inset-bottom)); }
+@media (hover: none) and (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]), select, textarea { font-size: 16px; }
+  .video-range { height: 7px; }
+  .video-range::-webkit-slider-thumb { width: 20px; height: 20px; }
+  .mobile-library-list { -webkit-overflow-scrolling: touch; }
+}
+@media (max-width: 359px) {
+  .control-button { width: 2.12rem; height: 2.3rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up { animation: none; }
+  .mobile-library-sidebar { transition-duration: 0.01ms; }
+}
+
+/* Keep fullscreen video and controls within the usable viewport after rotation. */
+.player-shadow:fullscreen,
+.player-shadow:-webkit-full-screen {
+  width: 100vw;
+  height: 100dvh;
+  min-height: 0;
+  max-height: 100dvh;
+  aspect-ratio: auto;
+  border-radius: 0;
+}
+
+@media (max-height: 520px) {
+  .mobile-movie-menu-poster { display: none; }
+}
+@media (max-width: 1023px) {
+  body:has(input:focus, textarea:focus) .mobile-bottom-nav { display: none; }
+  .glass { backdrop-filter: blur(10px) saturate(115%); }
+  .navy-glass { backdrop-filter: blur(10px) saturate(120%); }
+}

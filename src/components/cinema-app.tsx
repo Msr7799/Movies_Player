@@ -145,6 +145,26 @@ export function CinemaApp() {
 
   useEffect(() => () => objectUrls.current.forEach(URL.revokeObjectURL), []);
 
+  // Prevent the page behind mobile drawers and dialogs from scrolling.
+  useEffect(() => {
+    if (!sidebarOpen && !urlDialogOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previous; };
+  }, [sidebarOpen, urlDialogOpen]);
+
+  useEffect(() => {
+    if (!sidebarOpen && !urlDialogOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSidebarOpen(false);
+        setUrlDialogOpen(false);
+      }
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [sidebarOpen, urlDialogOpen]);
+
   const filteredMovies = useMemo(
     () => movies.filter((movie) => movie.title.toLowerCase().includes(query.toLowerCase()) && (
       selectedCategory === "all"
@@ -456,19 +476,19 @@ export function CinemaApp() {
   }
 
   return (
-    <main className="min-h-screen">
+    <main className="min-h-screen min-w-0 pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:pb-0">
       <header className="sticky top-0 z-40 border-b border-white/5 bg-[#09090b]/85 backdrop-blur-xl">
-        <div className="mx-auto flex min-h-[64px] max-w-[1600px] items-center gap-2 px-3 py-2 sm:h-[72px] sm:gap-4 sm:px-7 sm:py-0">
+        <div className="mx-auto flex min-h-[60px] max-w-[1600px] items-center gap-1.5 px-2 py-2 min-[360px]:gap-2 min-[360px]:px-3 sm:h-[72px] sm:gap-4 sm:px-7 sm:py-0">
           <button
-            className="group relative grid size-10 shrink-0 place-items-center rounded-xl hover:bg-white/10 lg:hidden"
+            className="group relative grid size-11 shrink-0 place-items-center rounded-xl hover:bg-white/10 lg:hidden"
             onClick={() => setSidebarOpen(true)}
             aria-label="فتح المكتبة"
           >
             <Image src={sidebarEnabled ? "/sidebar-on-toggle.png" : "/sidebar-off-1.png"} alt="" width={24} height={24} className="transition group-hover:opacity-0" />
             <Image src="/sidebare-off-toggle.png" alt="" width={24} height={24} className="absolute opacity-0 transition group-hover:opacity-100" />
           </button>
-          <div className="flex shrink-0 items-center gap-2 sm:gap-2.5">
-            <span className="navy-glass grid size-10 place-items-center rounded-xl">
+          <div className="flex min-w-0 shrink items-center gap-2 sm:shrink-0 sm:gap-2.5">
+            <span className="navy-glass grid size-9 shrink-0 place-items-center rounded-xl sm:size-10">
               <Play className="mr-0.5 fill-white" size={19} />
             </span>
             <div className="hidden min-[400px]:block">
@@ -487,14 +507,14 @@ export function CinemaApp() {
           </div>
           <button
             onClick={() => fileInput.current?.click()}
-            className="mr-auto flex shrink-0 items-center gap-2 rounded-xl bg-white px-3 py-2.5 text-xs font-bold text-zinc-950 transition hover:bg-rose-100 sm:px-4 sm:text-sm"
+            className="mr-auto flex h-11 shrink-0 items-center gap-2 rounded-xl bg-white px-3 text-xs font-bold text-zinc-950 transition hover:bg-rose-100 sm:px-4 sm:text-sm"
           >
             <FolderOpen size={17} />
             <span className="hidden sm:inline">فتح ملف</span>
           </button>
           <button
             onClick={() => { setUrlError(""); setUrlDialogOpen(true); }}
-            className="navy-glass flex shrink-0 items-center gap-2 rounded-xl px-3 py-2.5 text-xs font-bold text-rose-100 transition hover:brightness-125 sm:px-4 sm:text-sm"
+            className="navy-glass flex h-11 shrink-0 items-center gap-2 rounded-xl px-3 text-xs font-bold text-rose-100 transition hover:brightness-125 sm:px-4 sm:text-sm"
           >
             <Link2 size={17} />
             <span className="hidden sm:inline">فتح رابط</span>
@@ -512,7 +532,7 @@ export function CinemaApp() {
           </a>
           <a
             href="/admin"
-            className={`hidden shrink-0 items-center gap-2 rounded-xl border px-3 py-2.5 text-xs transition sm:flex ${adminAuthenticated ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-200" : "border-white/10 bg-white/5 text-zinc-400 hover:text-white"}`}
+            className={`flex h-11 shrink-0 items-center gap-2 rounded-xl border px-3 text-xs transition sm:flex ${adminAuthenticated ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-200" : "border-white/10 bg-white/5 text-zinc-400 hover:text-white"}`}
             aria-label="لوحة الإدارة"
           >
             <BarChart3 size={16} />
@@ -566,7 +586,7 @@ export function CinemaApp() {
           onSelect={selectMovie}
         />
 
-        <section className="min-w-0 flex-1 px-2.5 py-4 transition-[width,padding] duration-700 ease-[cubic-bezier(.22,1,.36,1)] sm:px-7 sm:py-8 lg:px-10">
+        <section className="min-w-0 flex-1 px-2.5 py-4 transition-[width,padding] duration-700 ease-[cubic-bezier(.22,1,.36,1)] min-[360px]:px-3.5 sm:px-7 sm:py-8 lg:px-10">
           <div className="animate-fade-up mx-auto max-w-[1250px]">
             <MovieDiscovery onPlay={playDiscoveredResult} />
 
@@ -606,12 +626,20 @@ export function CinemaApp() {
         </section>
       </div>
 
+      {/* Dedicated thumb-friendly navigation: no hover or mouse actions required. */}
+      <nav className="mobile-bottom-nav fixed inset-x-0 bottom-0 z-[35] grid grid-cols-4 border-t border-white/10 bg-[#0c1421]/95 px-2 pt-1.5 text-zinc-300 shadow-[0_-12px_30px_rgba(0,0,0,.35)] backdrop-blur-xl lg:hidden" aria-label="التنقل السريع">
+        <button type="button" onClick={() => { setSidebarMode("library"); setSidebarOpen(true); }} className="mobile-nav-item" aria-label="فتح مكتبة الأفلام"><Library size={21} /><span>المكتبة</span></button>
+        <button type="button" onClick={() => { setSidebarOpen(false); document.getElementById("movie-discovery")?.scrollIntoView({ behavior: "smooth", block: "start" }); }} className="mobile-nav-item" aria-label="الذهاب إلى البحث"><Search size={21} /><span>البحث</span></button>
+        <button type="button" onClick={() => { setSidebarOpen(false); document.getElementById("player-stage")?.scrollIntoView({ behavior: "smooth", block: "start" }); }} className="mobile-nav-item" aria-label="الذهاب إلى المشغل"><Play size={21} /><span>المشغل</span></button>
+        <button type="button" onClick={() => { setSidebarMode("history"); setSidebarOpen(true); }} className="mobile-nav-item" aria-label="فتح سجل المشاهدة"><History size={21} /><span>السجل</span></button>
+      </nav>
+
       {urlDialogOpen && (
-        <div className="fixed inset-0 z-[80] grid place-items-center overflow-y-auto bg-black/75 p-2.5 backdrop-blur-sm sm:p-4" onMouseDown={() => setUrlDialogOpen(false)}>
+        <div className="fixed inset-0 z-[80] grid place-items-center overflow-y-auto overscroll-contain bg-black/75 p-2.5 pb-[max(.625rem,env(safe-area-inset-bottom))] backdrop-blur-sm sm:p-4" onMouseDown={() => setUrlDialogOpen(false)}>
           <form
             onSubmit={openMovieUrl}
             onMouseDown={(event) => event.stopPropagation()}
-            className="glass my-auto max-h-[calc(100dvh-20px)] w-full max-w-xl overflow-y-auto rounded-2xl p-4 shadow-2xl sm:max-h-[calc(100dvh-32px)] sm:rounded-3xl sm:p-7"
+            className="glass my-auto max-h-[calc(100dvh-20px)] w-full min-w-0 max-w-xl overscroll-contain overflow-y-auto rounded-2xl p-4 shadow-2xl sm:max-h-[calc(100dvh-32px)] sm:rounded-3xl sm:p-7"
             dir="rtl"
           >
             <div className="mb-6 flex items-start gap-4">
@@ -704,11 +732,11 @@ function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, ope
 
   return (
     <>
-      {open && <button className="fixed inset-0 z-40 bg-black/70 lg:hidden" onClick={onClose} aria-label="إغلاق المكتبة" />}
-      <aside className={`mobile-library-sidebar fixed inset-y-0 right-0 z-50 flex h-[100dvh] w-[min(92vw,360px)] touch-pan-y flex-col overflow-hidden overscroll-contain border-l border-white/5 bg-[#0e0e11]/98 p-4 shadow-2xl shadow-black/40 backdrop-blur-xl will-change-transform transition-[transform,width,opacity,padding,border-color,filter] duration-700 ease-[cubic-bezier(.22,1,.36,1)] lg:sticky lg:top-[72px] lg:z-20 lg:h-[calc(100dvh-72px)] lg:shrink-0 lg:shadow-none ${desktopVisible ? "lg:w-[280px] lg:translate-x-0 lg:opacity-100 lg:blur-0" : "lg:pointer-events-none lg:w-0 lg:translate-x-10 lg:border-transparent lg:p-0 lg:opacity-0 lg:blur-sm"} ${open ? "translate-x-0 opacity-100" : "pointer-events-none translate-x-full opacity-0 lg:pointer-events-auto"}`}>
-        <div className="mb-6 flex items-center justify-between pt-2">
+      {open && <button className="fixed inset-0 z-40 bg-black/70 lg:hidden" type="button" onClick={onClose} aria-label="إغلاق المكتبة" />}
+      <aside className={`mobile-library-sidebar fixed inset-y-0 right-0 z-50 flex h-[100dvh] w-[min(94vw,380px)] touch-pan-y flex-col overflow-hidden overscroll-contain border-l border-white/5 bg-[#0e0e11]/98 p-3 shadow-2xl shadow-black/40 backdrop-blur-xl will-change-transform transition-[transform,width,opacity,padding,border-color,filter] duration-300 ease-out sm:p-4 lg:duration-700 lg:ease-[cubic-bezier(.22,1,.36,1)] lg:sticky lg:top-[72px] lg:z-20 lg:h-[calc(100dvh-72px)] lg:shrink-0 lg:shadow-none ${desktopVisible ? "lg:w-[280px] lg:translate-x-0 lg:opacity-100 lg:blur-0" : "lg:pointer-events-none lg:w-0 lg:translate-x-10 lg:border-transparent lg:p-0 lg:opacity-0 lg:blur-sm"} ${open ? "translate-x-0 opacity-100" : "pointer-events-none translate-x-full opacity-0 lg:pointer-events-auto"}`}>
+        <div className="mb-4 flex items-center justify-between pt-[max(.5rem,env(safe-area-inset-top))] lg:mb-6">
           <div className="flex items-center gap-2 text-sm font-bold"><Library size={17} className="text-rose-400" /> مكتبتي</div>
-          <button className="p-2 text-zinc-500 lg:hidden" onClick={onClose}><X size={18} /></button>
+          <button type="button" className="grid size-11 place-items-center rounded-xl bg-white/5 text-zinc-200 lg:hidden" aria-label="إغلاق المكتبة" onClick={onClose}><X size={20} /></button>
         </div>
         <nav className="mb-5 space-y-1 text-sm">
           <button onClick={() => setMode("library")} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-right font-semibold ${mode === "library" ? "navy-glass text-rose-200" : "text-zinc-500 hover:bg-white/5"}`}><Clapperboard size={17} /> الأفلام</button>
@@ -722,7 +750,7 @@ function LibrarySidebar({ movies, history, mode, setMode, activeId, loading, ope
           <span>{mode === "history" ? "سجل المشاهدة" : "قائمة الأفلام"}</span>
           <span>{count}</span>
         </div>
-        <p className="mb-2 px-1 text-[9px] text-zinc-600">اضغط بزر الفأرة الأيمن على الفيلم لفتح مركز التخصيص.</p>
+        <p className="mb-2 px-1 text-[10px] leading-5 text-zinc-500">اضغط على زر خيارات الفيلم لتغيير المصدر والتصنيفات.</p>
         <div className="mobile-library-list min-h-0 flex-1 touch-pan-y space-y-2 overflow-x-hidden overflow-y-scroll overscroll-contain pb-[max(1rem,env(safe-area-inset-bottom))]">
           {mode === "library" && loading && <div className="rounded-xl bg-white/5 p-4 text-xs text-zinc-500">جارِ قراءة مجلد assets...</div>}
           {mode === "library" && !loading && movies.length === 0 && (
@@ -826,12 +854,15 @@ function MovieSidebarCard({ movie, active, onSelect, onSelectSource, onFilterCat
         {!movie.categories?.length && <span className="mt-1 block text-[9px] text-zinc-600">غير مصنفة</span>}
       </span>
       </button>
-      <button onClick={(event) => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); openMenu(rect.left - 330, rect.bottom + 4); }} className="rounded-md p-1.5 text-zinc-600 hover:bg-white/10 hover:text-white" title="تخصيص الفيلم"><Image src="/sidebar-off-1.png" alt="" width={16} height={16} /></button>
-      {manage && <span className="flex shrink-0 flex-col gap-1"><button onClick={manage.onRename} className="rounded-md p-1.5 text-zinc-500 hover:bg-white/10 hover:text-white" title="تعديل الاسم"><Pencil size={12} /></button><button onClick={manage.onDelete} className="rounded-md p-1.5 text-zinc-600 hover:bg-red-500/10 hover:text-red-200" title="حذف هذا الفيلم فقط"><Trash2 size={12} /></button></span>}
-      {menu && createPortal(<div data-movie-menu className="fixed z-[100] w-[360px] max-w-[calc(100vw-16px)] animate-fade-up overflow-hidden rounded-2xl border border-white/10 bg-[#111722]/98 text-right shadow-2xl shadow-black/60 backdrop-blur-xl" style={{ left: menu.x, top: menu.mobile ? undefined : menu.y, bottom: menu.mobile ? 8 : undefined }} dir="rtl" onClick={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>
-        {movie.poster && <button onClick={() => setPosterExpanded(true)} className="group relative block aspect-video w-full overflow-hidden bg-black" title="عرض الصورة بالحجم الكبير"><Image src={movie.poster} alt={`صورة ${movie.title}`} fill sizes="360px" unoptimized className="object-cover transition duration-700 group-hover:scale-105" /><span className="absolute inset-0 grid place-items-center bg-black/0 transition group-hover:bg-black/35"><Eye className="opacity-0 transition group-hover:opacity-100" /></span></button>}
+      <button onClick={(event) => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); openMenu(rect.left - 330, rect.bottom + 4); }} className="grid size-10 shrink-0 place-items-center rounded-xl bg-white/5 text-zinc-300 hover:bg-white/10 hover:text-white" aria-label={`خيارات ${movie.title}`} title="تخصيص الفيلم"><Image src="/sidebar-off-1.png" alt="" width={16} height={16} /></button>
+      {manage && <span className="flex shrink-0 flex-col gap-1"><button onClick={manage.onRename} className="grid size-9 place-items-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white" aria-label={`تعديل اسم ${movie.title}`} title="تعديل الاسم"><Pencil size={12} /></button><button onClick={manage.onDelete} className="grid size-9 place-items-center rounded-lg text-zinc-400 hover:bg-red-500/10 hover:text-red-200" aria-label={`حذف ${movie.title}`} title="حذف هذا الفيلم فقط"><Trash2 size={12} /></button></span>}
+      {menu && createPortal(<>
+        <button type="button" aria-label="إغلاق خيارات الفيلم" className="fixed inset-0 z-[99] bg-black/60 sm:bg-transparent" onClick={() => setMenu(null)} />
+        <div data-movie-menu role="dialog" aria-modal="true" aria-label={`خيارات ${movie.title}`} className="fixed z-[100] flex max-h-[calc(100dvh-16px)] w-[min(440px,calc(100vw-16px))] flex-col animate-fade-up overflow-hidden rounded-2xl border border-white/10 bg-[#111722] text-right shadow-2xl shadow-black/60 backdrop-blur-xl sm:w-[360px]" style={{ left: menu.x, top: menu.mobile ? undefined : menu.y, bottom: menu.mobile ? 'max(8px, env(safe-area-inset-bottom))' : undefined }} dir="rtl" onClick={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-2 sm:hidden"><span className="text-xs font-bold">خيارات الفيلم</span><button type="button" onClick={() => setMenu(null)} className="grid size-10 place-items-center rounded-xl bg-white/10" aria-label="إغلاق"><X size={18} /></button></div>
+        {movie.poster && <button onClick={() => setPosterExpanded(true)} className="mobile-movie-menu-poster group relative block aspect-video w-full shrink-0 overflow-hidden bg-black" title="عرض الصورة بالحجم الكبير"><Image src={movie.poster} alt={`صورة ${movie.title}`} fill sizes="360px" unoptimized className="object-cover transition duration-700 group-hover:scale-105" /><span className="absolute inset-0 grid place-items-center bg-black/0 transition group-hover:bg-black/35"><Eye className="opacity-0 transition group-hover:opacity-100" /></span></button>}
         <div className="border-b border-white/8 px-4 py-3"><div className="text-sm font-black leading-6">{movie.title}</div>{movie.description && <p className="mt-2 line-clamp-3 text-[11px] leading-5 text-zinc-400">{movie.description}</p>}<div className="mt-1 text-[9px] text-zinc-500">مركز تخصيص الفيلم</div></div>
-        <div className="max-h-[min(430px,48dvh)] overscroll-contain touch-pan-y overflow-y-auto p-2">
+        <div className="min-h-0 flex-1 overscroll-contain touch-pan-y overflow-y-auto p-2">
           <div className="px-2 py-1 text-[10px] font-bold text-zinc-500">الجودة والمصدر</div>
           {movie.sources.map((source, index) => <button key={`${source.url}-${index}`} onClick={() => { onSelectSource(source.url); setMenu(null); }} className="flex w-full items-center rounded-lg px-2 py-2 text-[11px] hover:bg-white/7"><span>{source.quality}</span><span className="mr-auto max-w-28 truncate text-left text-[8px] text-zinc-600" dir="ltr">{source.kind ?? "video"}</span></button>)}
           <div className="mt-2 border-t border-white/8 px-2 pb-1 pt-3 text-[10px] font-bold text-zinc-500">التصنيفات</div>
@@ -847,7 +878,7 @@ function MovieSidebarCard({ movie, active, onSelect, onSelectSource, onFilterCat
           <button onClick={() => void navigator.clipboard.writeText(JSON.stringify(movie, null, 2))} className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-cyan-500/10 px-2 py-2 text-[10px] text-cyan-100"><Copy size={12} />نسخ بيانات الفيلم JSON</button>
           {manage && <div className="mt-2 grid grid-cols-2 gap-2 border-t border-white/8 pt-2"><button onClick={() => { manage.onRename(); setMenu(null); }} className="rounded-lg bg-white/7 px-2 py-2 text-[10px]">تعديل الاسم</button><button onClick={() => { manage.onDelete(); setMenu(null); }} className="rounded-lg bg-red-500/10 px-2 py-2 text-[10px] text-red-200">حذف الفيلم</button></div>}
         </div>
-      </div>, document.body)}
+      </div></>, document.body)}
       {posterExpanded && movie.poster && createPortal(<button className="fixed inset-0 z-[120] grid place-items-center bg-black/90 p-3 backdrop-blur-md sm:p-8" onClick={() => setPosterExpanded(false)} aria-label="إغلاق الصورة الكبيرة"><span className="relative block aspect-video w-full max-w-5xl overflow-hidden rounded-2xl border border-white/10 shadow-2xl"><Image src={movie.poster} alt={`صورة ${movie.title}`} fill sizes="100vw" unoptimized className="object-contain" /></span></button>, document.body)}
     </div>
   );
