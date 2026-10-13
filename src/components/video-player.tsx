@@ -770,6 +770,7 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate, onPosterGener
       <div className={`player-controls absolute inset-x-0 bottom-0 z-20 px-3 pb-3 pt-20 transition-opacity duration-300 sm:px-5 sm:pb-4 ${controlsVisible || !isPlaying ? "opacity-100" : "pointer-events-none opacity-0"}`}>
         <input
           type="range"
+          dir="ltr"
           min={0}
           max={duration || 0}
           step="0.05"
@@ -804,19 +805,22 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate, onPosterGener
             <button className="control-button" onClick={() => void openRemotePlayback()} aria-label="عرض على التلفاز" title="عرض على التلفاز / AirPlay / Cast"><Cast size={19} /></button>
             <div className="relative">
               <button className={`control-button ${settingsOpen ? "bg-white/15" : ""}`} onClick={() => { setSettingsOpen((value) => !value); setPanel("main"); }} aria-label="الإعدادات" aria-haspopup="dialog" aria-expanded={settingsOpen}><Settings size={20} /></button>
-              {settingsOpen && (isFullscreen
-                ? settingsMenu
-                : createPortal(
-                  <div className="fixed inset-0 z-[95]">
-                    <button type="button" onClick={() => setSettingsOpen(false)} className="absolute inset-0 size-full cursor-default bg-black/65 sm:bg-black/20" aria-label="إغلاق إعدادات المشغل" />
-                    {settingsMenu}
-                  </div>, document.body
-                ))}
             </div>
             <button className="control-button" onClick={() => void toggleFullscreen()} aria-label="ملء الشاشة">{isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}</button>
           </div>
         </div>
       </div>
+      {settingsOpen && (isFullscreen
+        ? <>
+            <button type="button" onClick={() => setSettingsOpen(false)} className="absolute inset-0 z-[25] size-full cursor-default bg-black/65 sm:bg-black/20" aria-label="إغلاق إعدادات المشغل" />
+            {settingsMenu}
+          </>
+        : createPortal(
+          <div className="fixed inset-0 z-[95]">
+            <button type="button" onClick={() => setSettingsOpen(false)} className="absolute inset-0 size-full cursor-default bg-black/65 sm:bg-black/20" aria-label="إغلاق إعدادات المشغل" />
+            {settingsMenu}
+          </div>, document.body
+        ))}
     </div>
   );
 }
@@ -859,7 +863,7 @@ function SettingsMenu(props: {
     : props.movie.sources.find((source) => source.url === props.sourceUrl)?.quality ?? "أصلي";
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="إعدادات مشغل الفيديو" className="glass fixed flex flex-col inset-x-2 bottom-[max(8px,env(safe-area-inset-bottom))] z-[100] max-h-[min(78dvh,540px)] overflow-hidden rounded-2xl text-right text-white shadow-2xl sm:absolute sm:inset-x-auto sm:bottom-5 sm:left-5 sm:z-auto sm:w-[min(340px,calc(100vw-32px))]" dir="rtl" onDoubleClick={(event) => event.stopPropagation()}>
+    <div role="dialog" aria-modal="true" aria-label="إعدادات مشغل الفيديو" className="glass fixed flex flex-col inset-x-2 bottom-[max(8px,env(safe-area-inset-bottom))] z-[100] max-h-[min(78dvh,540px)] overflow-hidden rounded-2xl text-right text-white shadow-2xl sm:absolute sm:inset-x-auto sm:bottom-5 sm:left-5 sm:z-30 sm:w-[min(340px,calc(100vw-32px))]" dir="rtl" onDoubleClick={(event) => event.stopPropagation()}>
       <div className="flex h-12 items-center border-b border-white/8 px-3">
         {panel !== "main" && <button onClick={() => setPanel(panel === "appearance" ? "subtitles" : "main")} className="rounded-lg px-2 py-1 text-lg text-zinc-400 hover:bg-white/10">‹</button>}
         <span className="px-2 text-xs font-bold">{panelTitle(panel)}</span>
