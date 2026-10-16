@@ -91,6 +91,8 @@ export function AdminDashboard() {
   const [libraryQuery, setLibraryQuery] = useState("");
   const [historyQuery, setHistoryQuery] = useState("");
   const [selectedMovies, setSelectedMovies] = useState<string[]>([]);
+  const [libraryError, setLibraryError] = useState("");
+  const [libraryMessage, setLibraryMessage] = useState("");
   const [selectedHistory, setSelectedHistory] = useState<string[]>([]);
   const [importJson, setImportJson] = useState("");
   const [rightsConfirmed, setRightsConfirmed] = useState(false);
@@ -262,6 +264,33 @@ export function AdminDashboard() {
     if (response.ok) await loadDashboard();
     else setError("تعذر حذف الفيلم.");
     setBusy(false);
+  }
+
+  async function deleteMovies(ids: string[], all = false) {
+    const prompt = all
+      ? "سيتم حذف جميع الأفلام من المكتبة وسجلات المشاهدة المرتبطة، حتى غير الظاهرة ضمن نتائج البحث. هل تريد المتابعة؟"
+      : `سيتم حذف ${ids.length} فيلمًا محددًا من المكتبة وسجلات المشاهدة المرتبطة. هل تريد المتابعة؟`;
+    if ((!all && !ids.length) || !window.confirm(prompt)) return;
+
+    setBusy(true);
+    setLibraryError("");
+    setLibraryMessage("");
+    try {
+      const response = await fetch("/api/admin/movies", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(all ? { all: true } : { ids }),
+      });
+      const payload = await readJsonResponse<{ error?: string; deleted?: number }>(response, "حذف الأفلام");
+      if (!response.ok) throw new Error(payload.error || "تعذر حذف الأفلام.");
+      setSelectedMovies([]);
+      setLibraryMessage(`تم حذف ${payload.deleted ?? 0} فيلمًا وسجلات المشاهدة المرتبطة.`);
+      await loadDashboard();
+    } catch (cause) {
+      setLibraryError(cause instanceof Error ? cause.message : "تعذر حذف الأفلام.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function deleteHistory(movieId: string) {
@@ -492,7 +521,25 @@ export function AdminDashboard() {
 
           <div className="space-y-6">
             <section className="glass min-w-0 rounded-2xl p-3.5 min-[360px]:p-4 sm:rounded-3xl sm:p-5">
-              <div className="mb-4 flex flex-wrap items-center gap-2"><h2 className="ml-auto text-sm font-black">المكتبة العامة</h2><div className="relative min-w-0 basis-full grow sm:min-w-40 sm:basis-44"><Search className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-600" size={15} /><input value={libraryQuery} onChange={(event) => setLibraryQuery(event.target.value)} placeholder="ابحث بالاسم أو التصنيف..." className="h-10 w-full rounded-xl border border-white/10 bg-black/25 pr-9 pl-3 text-xs outline-none focus:border-rose-400" /></div><button disabled={busy || visibleMovies.length === 0} onClick={() => void classifySelected()} className="rounded-xl bg-violet-500/10 px-3 py-2 text-[11px] font-bold text-violet-200"><Sparkles className="ml-1 inline" size={14} />تصنيف Gemini {selectedMovies.length ? `(${selectedMovies.length})` : "للنتائج"}</button></div>
+              <div className="mb-4 flex flex-wrap items-center gap-2">
+                <h2 className="ml-auto text-sm font-black">المكتبة العامة</h2>
+                <div className="relative min-w-0 basis-full grow sm:min-w-40 sm:basis-44">
+                  <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-600" size={15} />
+                  <input value={libraryQuery} onChange={(event) => setLibraryQuery(event.target.value)} placeholder="ابحث بالاسم أو التصنيف..." className="h-10 w-full rounded-xl border border-white/10 bg-black/25 pr-9 pl-3 text-xs outline-none focus:border-rose-400" />
+                </div>
+                <button type="button" disabled={busy || visibleMovies.length === 0} onClick={() => void classifySelected()} className="rounded-xl bg-violet-500/10 px-3 py-2 text-[11px] font-bold text-violet-200 disabled:opacity-40"><Sparkles className="ml-1 inline" size={14} />تصنيف Gemini {selectedMovies.length ? `(${selectedMovies.length})` : "للنتائج"}</button>
+                <button type="button" disabled={busy || visibleMovies.length === 0} onClick={() => setSelectedMovies((current) => {
+                  const visibleIds = visibleMovies.map((movie) => movie.id);
+                  const allVisibleSelected = visibleIds.every((id) => current.includes(id));
+                  return allVisibleSelected ? current.filter((id) => !visibleIds.includes(id)) : [...new Set([...current, ...visibleIds])];
+                })} className="rounded-xl border border-white/10 px-3 py-2 text-[11px] font-bold text-zinc-300 disabled:opacity-40">
+                  {visibleMovies.length > 0 && visibleMovies.every((movie) => selectedMovies.includes(movie.id)) ? "إلغاء تحديد النتائج" : `تحديد النتائج (${visibleMovies.length})`}
+                </button>
+                <button type="button" disabled={busy || selectedMovies.length === 0} onClick={() => void deleteMovies(selectedMovies)} className="rounded-xl bg-red-500/10 px-3 py-2 text-[11px] font-bold text-red-200 disabled:opacity-40"><Trash2 className="ml-1 inline" size={13} />حذف المحدد ({selectedMovies.length})</button>
+                <button type="button" disabled={busy || movies.length === 0} onClick={() => void deleteMovies([], true)} className="rounded-xl bg-red-500/20 px-3 py-2 text-[11px] font-bold text-red-100 disabled:opacity-40"><Trash2 className="ml-1 inline" size={13} />حذف الكل</button>
+              </div>
+              {libraryError && <p role="alert" className="mb-3 rounded-xl bg-red-500/10 p-3 text-xs text-red-200">{libraryError}</p>}
+              {libraryMessage && <p role="status" className="mb-3 rounded-xl bg-emerald-500/10 p-3 text-xs text-emerald-200">{libraryMessage}</p>}
               <div className="grid gap-3 md:grid-cols-2">{visibleMovies.map((movie) => <AdminMovieCard key={movie.id} movie={movie} selected={selectedMovies.includes(movie.id)} onToggle={() => setSelectedMovies((current) => current.includes(movie.id) ? current.filter((id) => id !== movie.id) : [...current, movie.id])} onEdit={() => editMovie(movie)} onDelete={() => void deleteMovie(movie)} />)}{visibleMovies.length === 0 && <p className="col-span-full rounded-xl border border-dashed border-white/10 p-6 text-center text-xs text-zinc-500">لا توجد نتائج مطابقة.</p>}</div>
             </section>
 
