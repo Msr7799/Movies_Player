@@ -1,6 +1,7 @@
 import type { PlaybackHistoryEntry } from "@/lib/media-types";
 import { ensureDatabaseIndexes } from "@/lib/mongodb";
 import { sanitizeHistoryPayload } from "@/lib/server-validation";
+import { historyWasDeleted } from "@/lib/history-deletions";
 
 export const runtime = "nodejs";
 
@@ -42,9 +43,19 @@ export async function GET() {
 
 export async function POST(request: Request) {
   if (rateLimited(request)) return Response.json({ error: "طلبات كثيرة." }, { status: 429 });
+  let payload: ReturnType<typeof sanitizeHistoryPayload>;
   try {
-    const { visitorId, movie, snapshot } = sanitizeHistoryPayload(await request.json());
+    payload = sanitizeHistoryPayload(await request.json());
+  } catch (cause) {
+    console.warn("[history] invalid playback payload", cause instanceof Error ? cause.message : "invalid JSON");
+    return Response.json({ error: "بيانات سجل المشاهدة غير صالحة." }, { status: 400 });
+  }
+  try {
+    const { visitorId, movie, snapshot } = payload;
     const database = await ensureDatabaseIndexes();
+    if (await historyWasDeleted(database, movie.id, snapshot.watchedAt)) {
+      return Response.json({ ok: true, ignored: true });
+    }
     await database.collection<HistoryDocument>("playback_history").updateOne(
       { visitorId, movieId: movie.id },
       {
@@ -60,7 +71,8 @@ export async function POST(request: Request) {
       { upsert: true },
     );
     return Response.json({ ok: true });
-  } catch {
-    return Response.json({ error: "بيانات سجل المشاهدة غير صالحة." }, { status: 400 });
+  } catch (cause) {
+    console.error("[history] failed to save playback", cause);
+    return Response.json({ error: "تعذر حفظ سجل المشاهدة الآن." }, { status: 503 });
   }
 }

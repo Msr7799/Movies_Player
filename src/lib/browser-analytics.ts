@@ -3,7 +3,7 @@ const VISITOR_KEY = "any-movie-visitor-id";
 export function visitorId() {
   if (typeof window === "undefined") return "";
   const existing = localStorage.getItem(VISITOR_KEY);
-  if (existing) return existing;
+  if (existing && /^[a-zA-Z0-9_-]{12,80}$/.test(existing)) return existing;
   const created = crypto.randomUUID();
   localStorage.setItem(VISITOR_KEY, created);
   return created;

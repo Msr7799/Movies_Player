@@ -2,6 +2,7 @@ import type { Movie } from "@/lib/media-types";
 import { isAdminRequest } from "@/lib/admin-auth";
 import { ensureDatabaseIndexes } from "@/lib/mongodb";
 import { sanitizeMovie } from "@/lib/server-validation";
+import { deletePlaybackHistory } from "@/lib/history-deletions";
 
 export const runtime = "nodejs";
 
@@ -41,7 +42,7 @@ export async function DELETE(request: Request) {
     if (!movieIds.length) return Response.json({ ok: true, deleted: 0 });
 
     const result = await movieCollection.deleteMany({ id: { $in: movieIds } });
-    await database.collection("playback_history").deleteMany({ movieId: { $in: movieIds } });
+    await deletePlaybackHistory(database, movieIds);
     return Response.json({ ok: true, deleted: result.deletedCount });
   } catch {
     return Response.json({ error: "تعذر حذف الأفلام المحددة." }, { status: 500 });

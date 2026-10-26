@@ -1,5 +1,6 @@
 import { isAdminRequest } from "@/lib/admin-auth";
 import { ensureDatabaseIndexes } from "@/lib/mongodb";
+import { deletePlaybackHistory } from "@/lib/history-deletions";
 
 export async function PATCH(request: Request, context: RouteContext<"/api/admin/history/[id]">) {
   if (!await isAdminRequest()) return Response.json({ error: "غير مصرح." }, { status: 401 });
@@ -21,6 +22,6 @@ export async function DELETE(_request: Request, context: RouteContext<"/api/admi
   if (!await isAdminRequest()) return Response.json({ error: "غير مصرح." }, { status: 401 });
   const { id } = await context.params;
   const database = await ensureDatabaseIndexes();
-  const result = await database.collection("playback_history").deleteMany({ movieId: id });
-  return Response.json({ ok: true, deleted: result.deletedCount });
+  const deleted = await deletePlaybackHistory(database, [id]);
+  return Response.json({ ok: true, deleted });
 }

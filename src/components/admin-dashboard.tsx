@@ -33,6 +33,24 @@ type AdminHistoryEntry = { movieId: string; movie: Movie; progress: number; dura
 type ImportPreviewItem = { key: string; title: string; poster: string; qualities: number; raw: unknown };
 type DeleteConfirmation = { title: string; message: string; action: () => Promise<void> };
 
+const BROWSER_HISTORY_KEY = "cinema-playback-history-v2";
+
+function forgetBrowserHistory(movieIds: string[], all = false) {
+  try {
+    if (all) {
+      localStorage.removeItem(BROWSER_HISTORY_KEY);
+      return;
+    }
+    const entries: unknown = JSON.parse(localStorage.getItem(BROWSER_HISTORY_KEY) || "[]");
+    if (!Array.isArray(entries)) return;
+    const deleted = new Set(movieIds);
+    localStorage.setItem(BROWSER_HISTORY_KEY, JSON.stringify(entries.filter((entry) => {
+      const movie = entry && typeof entry === "object" ? (entry as { movie?: { id?: unknown } }).movie : undefined;
+      return !movie || typeof movie.id !== "string" || !deleted.has(movie.id);
+    })));
+  } catch { /* Local browser history is optional. */ }
+}
+
 function bracketBalance(value: string, opening: "[" | "{", closing: "]" | "}") {
   let balance = 0;
   let inString = false;
@@ -273,6 +291,7 @@ export function AdminDashboard() {
     try {
       const response = await fetch(`/api/admin/movies/${encodeURIComponent(movie.id)}`, { method: "DELETE" });
       if (!response.ok) throw new Error("تعذر حذف الفيلم.");
+      forgetBrowserHistory([movie.id]);
       setSelectedMovies((current) => current.filter((id) => id !== movie.id));
       setSelectedHistory((current) => current.filter((id) => id !== movie.id));
       setLibraryMessage("تم حذف الفيلم وسجلات المشاهدة المرتبطة.");
@@ -298,6 +317,7 @@ export function AdminDashboard() {
         const payload = await readJsonResponse<{ error?: string; deleted?: number }>(response, "حذف الأفلام");
         if (!response.ok) throw new Error(payload.error || "تعذر حذف الأفلام.");
         deleted += payload.deleted ?? 0;
+        forgetBrowserHistory(batch, all);
       }
       setSelectedMovies([]);
       setSelectedHistory([]);
@@ -316,6 +336,7 @@ export function AdminDashboard() {
     try {
       const response = await fetch(`/api/admin/history/${encodeURIComponent(movieId)}`, { method: "DELETE" });
       if (!response.ok) throw new Error("تعذر حذف سجل الفيلم.");
+      forgetBrowserHistory([movieId]);
       setSelectedHistory((current) => current.filter((id) => id !== movieId));
       await loadDashboard();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "تعذر حذف سجل الفيلم."); }
@@ -345,6 +366,7 @@ export function AdminDashboard() {
           body: JSON.stringify({ movieIds: movieIds.slice(index, index + 100) }),
         });
         if (!response.ok) throw new Error("تعذر حذف بعض العناصر المحددة.");
+        forgetBrowserHistory(movieIds.slice(index, index + 100));
       }
       setSelectedHistory([]);
       await loadDashboard();

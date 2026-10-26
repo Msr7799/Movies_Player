@@ -102,7 +102,9 @@ export function sanitizeHistoryPayload(value: unknown): {
     snapshot: {
       progress: typeof rawSnapshot.progress === "number" ? Math.max(0, rawSnapshot.progress) : 0,
       duration: typeof rawSnapshot.duration === "number" ? Math.max(0, rawSnapshot.duration) : 0,
-      watchedAt: Date.now(),
+      watchedAt: typeof rawSnapshot.watchedAt === "number" && Number.isFinite(rawSnapshot.watchedAt)
+        ? Math.min(Date.now(), Math.max(0, Math.floor(rawSnapshot.watchedAt)))
+        : 0,
       details,
     },
   };

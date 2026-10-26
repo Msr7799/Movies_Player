@@ -1,5 +1,6 @@
 import { isAdminRequest } from "@/lib/admin-auth";
 import { ensureDatabaseIndexes } from "@/lib/mongodb";
+import { deletePlaybackHistory } from "@/lib/history-deletions";
 
 export async function GET() {
   if (!await isAdminRequest()) return Response.json({ error: "غير مصرح." }, { status: 401 });
@@ -25,6 +26,6 @@ export async function DELETE(request: Request) {
     : [];
   if (!movieIds.length) return Response.json({ error: "حدد فيلمًا واحدًا على الأقل." }, { status: 400 });
   const database = await ensureDatabaseIndexes();
-  const result = await database.collection("playback_history").deleteMany({ movieId: { $in: movieIds } });
-  return Response.json({ ok: true, deleted: result.deletedCount });
+  const deleted = await deletePlaybackHistory(database, movieIds);
+  return Response.json({ ok: true, deleted });
 }

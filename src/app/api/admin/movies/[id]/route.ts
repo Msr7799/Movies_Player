@@ -2,6 +2,7 @@ import type { Movie } from "@/lib/media-types";
 import { isAdminRequest } from "@/lib/admin-auth";
 import { ensureDatabaseIndexes } from "@/lib/mongodb";
 import { sanitizeMovie } from "@/lib/server-validation";
+import { deletePlaybackHistory } from "@/lib/history-deletions";
 
 export const runtime = "nodejs";
 
@@ -35,7 +36,7 @@ export async function DELETE(_request: Request, context: RouteContext<"/api/admi
   const { id } = await context.params;
   const database = await ensureDatabaseIndexes();
   const result = await database.collection<MovieDocument>("movies").deleteOne({ id });
-  await database.collection("playback_history").deleteMany({ movieId: id });
+  await deletePlaybackHistory(database, [id]);
   return result.deletedCount
     ? Response.json({ ok: true })
     : Response.json({ error: "الفيلم غير موجود." }, { status: 404 });

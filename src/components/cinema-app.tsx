@@ -93,7 +93,10 @@ export function CinemaApp() {
       const [localResult, catalogResult, historyResult] = await Promise.allSettled([
         fetch("/api/library", { cache: "no-store" }).then((response) => response.json() as Promise<LibraryResponse>),
         fetch("/api/catalog", { cache: "no-store" }).then((response) => response.json() as Promise<LibraryResponse>),
-        fetch("/api/history", { cache: "no-store" }).then((response) => response.json() as Promise<{ history?: HistoryEntry[] }>),
+        fetch("/api/history", { cache: "no-store" }).then((response) => {
+          if (!response.ok) throw new Error("History is unavailable");
+          return response.json() as Promise<{ history?: HistoryEntry[] }>;
+        }),
       ]);
       const localMovies = localResult.status === "fulfilled" ? localResult.value.movies ?? [] : [];
       const publicMovies = catalogResult.status === "fulfilled" ? catalogResult.value.movies ?? [] : [];
@@ -109,21 +112,13 @@ export function CinemaApp() {
       setActiveMovie((current) => current.id === VEER_ZAARA_MOVIE.id
         ? publicMovies[0] ?? localMovies[0] ?? publicHistory[0]?.movie ?? VEER_ZAARA_MOVIE
         : current);
-      setHistory((current) => {
-        const merged = [...publicHistory, ...browserHistory, ...current].sort((a, b) => b.watchedAt - a.watchedAt);
-        const unique = new Map<string, HistoryEntry>();
-        for (const entry of merged) if (!unique.has(entry.movie.id)) unique.set(entry.movie.id, entry);
-        return [...unique.values()].slice(0, MAX_HISTORY_ENTRIES);
-      });
-      const id = visitorId();
-      void Promise.allSettled(browserHistory
-        .filter((entry) => isRemotePersistable(entry.movie))
-        .slice(0, MAX_HISTORY_ENTRIES)
-        .map((entry) => fetch("/api/history", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ visitorId: id, movie: entry.movie, snapshot: entry }),
-        })));
+      if (historyResult.status === "fulfilled") {
+        const currentHistory = publicHistory.slice(0, MAX_HISTORY_ENTRIES);
+        setHistory(currentHistory);
+        persistHistory(currentHistory);
+      } else {
+        setHistory(browserHistory);
+      }
     } finally {
       setLoading(false);
       setCatalogReady(true);
