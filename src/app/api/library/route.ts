@@ -44,11 +44,6 @@ function subtitleMeta(filename: string): SubtitleTrack {
 }
 
 export async function GET() {
-  await Promise.all([
-    fs.mkdir(videosRoot, { recursive: true }),
-    fs.mkdir(subtitlesRoot, { recursive: true }),
-    fs.mkdir(postersRoot, { recursive: true }),
-  ]);
   const [videoFiles, subtitleFiles, posterFiles] = await Promise.all([
     filesIn(videosRoot), filesIn(subtitlesRoot), filesIn(postersRoot),
   ]);

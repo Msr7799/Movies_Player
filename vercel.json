@@ -1,11 +1,12 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": null,
-  "outputDirectory": "public",
+  "framework": "nextjs",
   "rewrites": [
-    { "source": "/admin", "destination": "/admin.html" },
     { "source": "/api", "destination": "/api/router?__api_path=__root" },
-    { "source": "/api/:path*", "destination": "/api/router?__api_path=:path*" }
+    { "source": "/api/openapi", "destination": "/api/router?__api_path=openapi" },
+    { "source": "/api/v1/:path*", "destination": "/api/router?__api_path=v1/:path*" },
+    { "source": "/api/admin/catalog", "destination": "/api/router?__api_path=admin/catalog" },
+    { "source": "/api/admin/settings", "destination": "/api/router?__api_path=admin/settings" }
   ],
   "functions": {
     "api/router.ts": { "maxDuration": 60 }
