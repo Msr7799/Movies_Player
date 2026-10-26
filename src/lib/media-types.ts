@@ -9,6 +9,38 @@ export type MediaSource = {
 
 export type SubtitleTrack = { label: string; language: string; url: string };
 
+export type MoviePerson = {
+  id: string;
+  name: string;
+  role?: string;
+  image?: string;
+};
+
+export type MovieMetadata = {
+  title: string;
+  originalTitle?: string;
+  overview?: string;
+  releaseDate?: string;
+  year?: number;
+  runtime?: number;
+  rating?: number;
+  voteCount?: number;
+  certification?: string;
+  genres: string[];
+  countries: string[];
+  languages: string[];
+  poster?: string;
+  backdrop?: string;
+  images: string[];
+  directors: MoviePerson[];
+  writers: MoviePerson[];
+  cast: MoviePerson[];
+  imdbId?: string;
+  tmdbId?: number;
+  wikidataId?: string;
+  source: "tmdb" | "wikidata" | "combined";
+};
+
 export type Movie = {
   id: string;
   title: string;
