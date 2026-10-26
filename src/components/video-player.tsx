@@ -665,8 +665,8 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate, onPosterGener
     );
   }
 
-  // Outside fullscreen, render settings at document level so the video player's
-  // overflow clipping and animated ancestors cannot cut off mobile options.
+  // Keep desktop settings anchored to the player; use a viewport portal only
+  // on narrow screens where the video is too short to contain the menu.
   const settingsMenu = settingsOpen ? (
     <SettingsMenu
                   panel={panel}
@@ -767,7 +767,7 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate, onPosterGener
         </button>
       )}
 
-      <div className={`player-controls absolute inset-x-0 bottom-0 z-20 px-3 pb-3 pt-20 transition-opacity duration-300 sm:px-5 sm:pb-4 ${controlsVisible || !isPlaying ? "opacity-100" : "pointer-events-none opacity-0"}`}>
+      <div dir="ltr" className={`player-controls absolute inset-x-0 bottom-0 z-20 px-3 pb-3 pt-20 transition-opacity duration-300 sm:px-5 sm:pb-4 ${controlsVisible || !isPlaying ? "opacity-100" : "pointer-events-none opacity-0"}`}>
         <input
           type="range"
           dir="ltr"
@@ -789,7 +789,7 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate, onPosterGener
               {volume === 0 ? <VolumeX size={21} /> : volume < .5 ? <Volume1 size={21} /> : <Volume2 size={21} />}
             </button>
             <input
-              type="range" min={0} max={1} step={.02} value={volume}
+              type="range" dir="ltr" min={0} max={1} step={.02} value={volume}
               onChange={(event) => { const value = Number(event.target.value); setVolume(value); if (videoRef.current) videoRef.current.volume = value; }}
               className="hidden w-20 accent-rose-500 sm:block"
               aria-label="مستوى الصوت"
@@ -803,24 +803,25 @@ export function VideoPlayer({ movie, onOpenFiles, onHistoryUpdate, onPosterGener
             <button className={`control-button ${subtitleTrack ? "text-rose-400" : ""}`} onClick={() => setSubtitleTrack((track) => track ? null : (movie.subtitles[0] ?? null))} aria-label="الترجمة"><Captions size={21} /></button>
             <button className="control-button hidden sm:inline-flex" onClick={togglePiP} aria-label="صورة داخل صورة"><PictureInPicture size={19} /></button>
             <button className="control-button" onClick={() => void openRemotePlayback()} aria-label="عرض على التلفاز" title="عرض على التلفاز / AirPlay / Cast"><Cast size={19} /></button>
-            <div className="relative">
-              <button className={`control-button ${settingsOpen ? "bg-white/15" : ""}`} onClick={() => { setSettingsOpen((value) => !value); setPanel("main"); }} aria-label="الإعدادات" aria-haspopup="dialog" aria-expanded={settingsOpen}><Settings size={20} /></button>
-            </div>
+            <button className={`control-button ${settingsOpen ? "bg-white/15" : ""}`} onClick={() => { setSettingsOpen((value) => !value); setPanel("main"); }} aria-label="الإعدادات" aria-haspopup="dialog" aria-expanded={settingsOpen}><Settings size={20} /></button>
             <button className="control-button" onClick={() => void toggleFullscreen()} aria-label="ملء الشاشة">{isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}</button>
           </div>
         </div>
       </div>
-      {settingsOpen && (isFullscreen
-        ? <>
-            <button type="button" onClick={() => setSettingsOpen(false)} className="absolute inset-0 z-[25] size-full cursor-default bg-black/65 sm:bg-black/20" aria-label="إغلاق إعدادات المشغل" />
-            {settingsMenu}
-          </>
-        : createPortal(
-          <div className="fixed inset-0 z-[95]">
+      {settingsOpen && (
+        <>
+          <div className={`absolute inset-0 z-40 ${isFullscreen ? "" : "hidden sm:block"}`}>
             <button type="button" onClick={() => setSettingsOpen(false)} className="absolute inset-0 size-full cursor-default bg-black/65 sm:bg-black/20" aria-label="إغلاق إعدادات المشغل" />
             {settingsMenu}
-          </div>, document.body
-        ))}
+          </div>
+          {!isFullscreen && createPortal(
+            <div className="fixed inset-0 z-[95] sm:hidden">
+              <button type="button" onClick={() => setSettingsOpen(false)} className="absolute inset-0 size-full cursor-default bg-black/65" aria-label="إغلاق إعدادات المشغل" />
+              {settingsMenu}
+            </div>, document.body
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -863,7 +864,7 @@ function SettingsMenu(props: {
     : props.movie.sources.find((source) => source.url === props.sourceUrl)?.quality ?? "أصلي";
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="إعدادات مشغل الفيديو" className="glass fixed flex flex-col inset-x-2 bottom-[max(8px,env(safe-area-inset-bottom))] z-[100] max-h-[min(78dvh,540px)] overflow-hidden rounded-2xl text-right text-white shadow-2xl sm:absolute sm:inset-x-auto sm:bottom-5 sm:left-5 sm:z-30 sm:w-[min(340px,calc(100vw-32px))]" dir="rtl" onDoubleClick={(event) => event.stopPropagation()}>
+    <div role="dialog" aria-modal="true" aria-label="إعدادات مشغل الفيديو" className="glass fixed inset-x-2 bottom-[max(8px,env(safe-area-inset-bottom))] z-[100] flex max-h-[min(78dvh,540px)] flex-col overflow-hidden rounded-2xl text-right text-white shadow-2xl sm:absolute sm:inset-x-auto sm:right-5 sm:bottom-16 sm:left-auto sm:z-30 sm:max-h-[min(70%,540px)] sm:w-[340px] sm:max-w-[calc(100%_-_40px)]" dir="rtl" onDoubleClick={(event) => event.stopPropagation()}>
       <div className="flex h-12 items-center border-b border-white/8 px-3">
         {panel !== "main" && <button onClick={() => setPanel(panel === "appearance" ? "subtitles" : "main")} className="rounded-lg px-2 py-1 text-lg text-zinc-400 hover:bg-white/10">‹</button>}
         <span className="px-2 text-xs font-bold">{panelTitle(panel)}</span>
@@ -879,7 +880,7 @@ function SettingsMenu(props: {
             <SettingRow icon={<Info size={17} />} label="تفاصيل الوسائط" value={props.details.type} onClick={() => setPanel("details")} />
             <div className="mt-2 border-t border-white/8 pt-2">
               <div className="mb-2 flex items-center gap-2 px-2 text-xs font-bold"><ZoomIn size={16} className="text-rose-400" /> تكبير الصورة <span className="mr-auto text-zinc-500">{props.zoom}%</span></div>
-              <input className="w-full" type="range" min={100} max={160} step={5} value={props.zoom} onChange={(event) => props.setZoom(Number(event.target.value))} />
+              <input className="w-full" type="range" dir="ltr" min={100} max={160} step={5} value={props.zoom} onChange={(event) => props.setZoom(Number(event.target.value))} />
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <button onClick={() => props.setFit("contain")} className={`rounded-lg px-2 py-2 text-[11px] ${props.fit === "contain" ? "bg-rose-500 text-white" : "bg-white/5 text-zinc-400"}`}>احتواء</button>
                 <button onClick={() => props.setFit("cover")} className={`rounded-lg px-2 py-2 text-[11px] ${props.fit === "cover" ? "bg-rose-500 text-white" : "bg-white/5 text-zinc-400"}`}>ملء الإطار</button>
@@ -1011,7 +1012,7 @@ function PictureAdjustmentPanel({ value, onChange }: { value: PictureAdjustments
 }
 
 function RangeSetting({ label, value, min, max, step = 1, valueNumber, onChange }: { label: string; value: string; min: number; max: number; step?: number; valueNumber: number; onChange: (value: number) => void }) {
-  return <label className="block"><span className="mb-2 flex justify-between"><span>{label}</span><span className="text-zinc-500">{value}</span></span><input className="w-full" type="range" min={min} max={max} step={step} value={valueNumber} onChange={(event) => onChange(Number(event.target.value))} /></label>;
+  return <label className="block"><span className="mb-2 flex justify-between"><span>{label}</span><span className="text-zinc-500">{value}</span></span><input className="w-full" type="range" dir="ltr" min={min} max={max} step={step} value={valueNumber} onChange={(event) => onChange(Number(event.target.value))} /></label>;
 }
 
 function panelTitle(panel: SettingsPanel) {

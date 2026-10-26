@@ -31,6 +31,7 @@ type EditorState = {
 
 type AdminHistoryEntry = { movieId: string; movie: Movie; progress: number; duration: number; watchedAt: number };
 type ImportPreviewItem = { key: string; title: string; poster: string; qualities: number; raw: unknown };
+type DeleteConfirmation = { title: string; message: string; action: () => Promise<void> };
 
 function bracketBalance(value: string, opening: "[" | "{", closing: "]" | "}") {
   let balance = 0;
@@ -104,6 +105,14 @@ export function AdminDashboard() {
   const [importDragKey, setImportDragKey] = useState("");
   const [dashboardWarning, setDashboardWarning] = useState("");
   const [editorPanelOpen, setEditorPanelOpen] = useState(true);
+  const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteConfirmation | null>(null);
+
+  useEffect(() => {
+    if (!deleteConfirmation) return;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setDeleteConfirmation(null); };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [deleteConfirmation]);
 
   const loadDashboard = useCallback(async () => {
     const [catalogResponse, statsResponse, historyResponse] = await Promise.all([
@@ -257,47 +266,60 @@ export function AdminDashboard() {
     URL.revokeObjectURL(url);
   }
 
-  async function deleteMovie(movie: Movie) {
-    if (!window.confirm(`حذف «${movie.title}» من المكتبة العامة والسجل؟`)) return;
-    setBusy(true);
-    const response = await fetch(`/api/admin/movies/${encodeURIComponent(movie.id)}`, { method: "DELETE" });
-    if (response.ok) await loadDashboard();
-    else setError("تعذر حذف الفيلم.");
-    setBusy(false);
-  }
-
-  async function deleteMovies(ids: string[], all = false) {
-    const prompt = all
-      ? "سيتم حذف جميع الأفلام من المكتبة وسجلات المشاهدة المرتبطة، حتى غير الظاهرة ضمن نتائج البحث. هل تريد المتابعة؟"
-      : `سيتم حذف ${ids.length} فيلمًا محددًا من المكتبة وسجلات المشاهدة المرتبطة. هل تريد المتابعة؟`;
-    if ((!all && !ids.length) || !window.confirm(prompt)) return;
-
+  async function performDeleteMovie(movie: Movie) {
     setBusy(true);
     setLibraryError("");
     setLibraryMessage("");
     try {
-      const response = await fetch("/api/admin/movies", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(all ? { all: true } : { ids }),
-      });
-      const payload = await readJsonResponse<{ error?: string; deleted?: number }>(response, "حذف الأفلام");
-      if (!response.ok) throw new Error(payload.error || "تعذر حذف الأفلام.");
-      setSelectedMovies([]);
-      setLibraryMessage(`تم حذف ${payload.deleted ?? 0} فيلمًا وسجلات المشاهدة المرتبطة.`);
+      const response = await fetch(`/api/admin/movies/${encodeURIComponent(movie.id)}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("تعذر حذف الفيلم.");
+      setSelectedMovies((current) => current.filter((id) => id !== movie.id));
+      setSelectedHistory((current) => current.filter((id) => id !== movie.id));
+      setLibraryMessage("تم حذف الفيلم وسجلات المشاهدة المرتبطة.");
       await loadDashboard();
     } catch (cause) {
-      setLibraryError(cause instanceof Error ? cause.message : "تعذر حذف الأفلام.");
+      setLibraryError(cause instanceof Error ? cause.message : "تعذر حذف الفيلم.");
+    } finally { setBusy(false); }
+  }
+
+  async function performDeleteMovies(ids: string[], all = false) {
+    setBusy(true);
+    setLibraryError("");
+    setLibraryMessage("");
+    let deleted = 0;
+    try {
+      const batches = all ? [[]] : Array.from({ length: Math.ceil(ids.length / 500) }, (_, index) => ids.slice(index * 500, (index + 1) * 500));
+      for (const batch of batches) {
+        const response = await fetch("/api/admin/movies", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(all ? { all: true } : { ids: batch }),
+        });
+        const payload = await readJsonResponse<{ error?: string; deleted?: number }>(response, "حذف الأفلام");
+        if (!response.ok) throw new Error(payload.error || "تعذر حذف الأفلام.");
+        deleted += payload.deleted ?? 0;
+      }
+      setSelectedMovies([]);
+      setSelectedHistory([]);
+      setLibraryMessage(`تم حذف ${deleted} فيلمًا وسجلات المشاهدة المرتبطة.`);
+      await loadDashboard();
+    } catch (cause) {
+      setLibraryError(`${cause instanceof Error ? cause.message : "تعذر حذف الأفلام."}${deleted ? ` تم حذف ${deleted} فيلمًا قبل توقف العملية.` : ""}`);
+      await loadDashboard();
     } finally {
       setBusy(false);
     }
   }
 
-  async function deleteHistory(movieId: string) {
-    if (!window.confirm("حذف هذا الفيلم من سجل المشاهدة العام؟")) return;
-    const response = await fetch(`/api/admin/history/${encodeURIComponent(movieId)}`, { method: "DELETE" });
-    if (response.ok) await loadDashboard();
-    else setError("تعذر حذف سجل الفيلم.");
+  async function performDeleteHistory(movieId: string) {
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/admin/history/${encodeURIComponent(movieId)}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("تعذر حذف سجل الفيلم.");
+      setSelectedHistory((current) => current.filter((id) => id !== movieId));
+      await loadDashboard();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "تعذر حذف سجل الفيلم."); }
+    finally { setBusy(false); }
   }
 
   async function renameHistory(entry: AdminHistoryEntry) {
@@ -312,15 +334,52 @@ export function AdminDashboard() {
     else setError("تعذر تعديل اسم الفيلم في السجل.");
   }
 
-  async function deleteSelectedHistory() {
-    if (!selectedHistory.length || !window.confirm(`حذف ${selectedHistory.length} فيلمًا محددًا من شوهد مؤخرًا؟`)) return;
-    const response = await fetch("/api/admin/history", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ movieIds: selectedHistory }),
+  async function performDeleteSelectedHistory(movieIds: string[]) {
+    if (!movieIds.length) return;
+    setBusy(true);
+    try {
+      for (let index = 0; index < movieIds.length; index += 100) {
+        const response = await fetch("/api/admin/history", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ movieIds: movieIds.slice(index, index + 100) }),
+        });
+        if (!response.ok) throw new Error("تعذر حذف بعض العناصر المحددة.");
+      }
+      setSelectedHistory([]);
+      await loadDashboard();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "تعذر حذف العناصر المحددة.");
+      await loadDashboard();
+    } finally { setBusy(false); }
+  }
+
+  function confirmDeleteMovie(movie: Movie) {
+    setDeleteConfirmation({
+      title: "حذف الفيلم؟",
+      message: `سيُحذف «${movie.title}» من المكتبة العامة مع سجلات مشاهدته.`,
+      action: () => performDeleteMovie(movie),
     });
-    if (response.ok) { setSelectedHistory([]); await loadDashboard(); }
-    else setError("تعذر حذف العناصر المحددة.");
+  }
+
+  function confirmDeleteMovies(ids: string[], all = false) {
+    if (!all && !ids.length) return;
+    setDeleteConfirmation({
+      title: all ? "حذف جميع الأفلام؟" : `حذف ${ids.length} فيلمًا؟`,
+      message: all
+        ? "سيُحذف كامل محتوى المكتبة وسجلات المشاهدة المرتبطة، بما فيه الأفلام خارج نتائج البحث الحالية."
+        : "ستُحذف الأفلام المحددة وسجلات مشاهدتها من المكتبة العامة.",
+      action: () => performDeleteMovies(ids, all),
+    });
+  }
+
+  function confirmDeleteHistory(movieIds: string[], title?: string) {
+    if (!movieIds.length) return;
+    setDeleteConfirmation({
+      title: title ? "حذف سجل المشاهدة؟" : `حذف ${movieIds.length} من شوهد مؤخرًا؟`,
+      message: title ? `سيُحذف سجل مشاهدة «${title}» فقط.` : "ستُحذف سجلات المشاهدة المحددة فقط. ستبقى الأفلام في المكتبة.",
+      action: () => movieIds.length === 1 ? performDeleteHistory(movieIds[0]) : performDeleteSelectedHistory(movieIds),
+    });
   }
 
   async function classifyIds(ids: string[]) {
@@ -521,7 +580,7 @@ export function AdminDashboard() {
 
           <div className="space-y-6">
             <section className="glass min-w-0 rounded-2xl p-3.5 min-[360px]:p-4 sm:rounded-3xl sm:p-5">
-              <div className="mb-4 flex flex-wrap items-center gap-2">
+              <div className="sticky top-0 z-20 mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-[#101b2c]/95 p-2.5 shadow-xl backdrop-blur-xl">
                 <h2 className="ml-auto text-sm font-black">المكتبة العامة</h2>
                 <div className="relative min-w-0 basis-full grow sm:min-w-40 sm:basis-44">
                   <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-600" size={15} />
@@ -533,14 +592,14 @@ export function AdminDashboard() {
                   const allVisibleSelected = visibleIds.every((id) => current.includes(id));
                   return allVisibleSelected ? current.filter((id) => !visibleIds.includes(id)) : [...new Set([...current, ...visibleIds])];
                 })} className="rounded-xl border border-white/10 px-3 py-2 text-[11px] font-bold text-zinc-300 disabled:opacity-40">
-                  {visibleMovies.length > 0 && visibleMovies.every((movie) => selectedMovies.includes(movie.id)) ? "إلغاء تحديد النتائج" : `تحديد النتائج (${visibleMovies.length})`}
+                  {visibleMovies.length > 0 && visibleMovies.every((movie) => selectedMovies.includes(movie.id)) ? "إلغاء تحديد النتائج" : `${libraryQuery.trim() ? "تحديد النتائج" : "تحديد الكل"} (${visibleMovies.length})`}
                 </button>
-                <button type="button" disabled={busy || selectedMovies.length === 0} onClick={() => void deleteMovies(selectedMovies)} className="rounded-xl bg-red-500/10 px-3 py-2 text-[11px] font-bold text-red-200 disabled:opacity-40"><Trash2 className="ml-1 inline" size={13} />حذف المحدد ({selectedMovies.length})</button>
-                <button type="button" disabled={busy || movies.length === 0} onClick={() => void deleteMovies([], true)} className="rounded-xl bg-red-500/20 px-3 py-2 text-[11px] font-bold text-red-100 disabled:opacity-40"><Trash2 className="ml-1 inline" size={13} />حذف الكل</button>
+                <button type="button" disabled={busy || selectedMovies.length === 0} onClick={() => confirmDeleteMovies([...selectedMovies])} className="rounded-xl bg-red-500/15 px-3 py-2 text-[11px] font-bold text-red-100 disabled:opacity-40"><Trash2 className="ml-1 inline" size={13} />حذف المحدد ({selectedMovies.length})</button>
+                <button type="button" disabled={busy || movies.length === 0} onClick={() => confirmDeleteMovies([], true)} className="rounded-xl border border-red-400/25 px-3 py-2 text-[11px] font-bold text-red-200 disabled:opacity-40"><Trash2 className="ml-1 inline" size={13} />حذف المكتبة كاملة</button>
               </div>
               {libraryError && <p role="alert" className="mb-3 rounded-xl bg-red-500/10 p-3 text-xs text-red-200">{libraryError}</p>}
               {libraryMessage && <p role="status" className="mb-3 rounded-xl bg-emerald-500/10 p-3 text-xs text-emerald-200">{libraryMessage}</p>}
-              <div className="grid gap-3 md:grid-cols-2">{visibleMovies.map((movie) => <AdminMovieCard key={movie.id} movie={movie} selected={selectedMovies.includes(movie.id)} onToggle={() => setSelectedMovies((current) => current.includes(movie.id) ? current.filter((id) => id !== movie.id) : [...current, movie.id])} onEdit={() => editMovie(movie)} onDelete={() => void deleteMovie(movie)} />)}{visibleMovies.length === 0 && <p className="col-span-full rounded-xl border border-dashed border-white/10 p-6 text-center text-xs text-zinc-500">لا توجد نتائج مطابقة.</p>}</div>
+              <div className="grid gap-3 md:grid-cols-2">{visibleMovies.map((movie) => <AdminMovieCard key={movie.id} movie={movie} selected={selectedMovies.includes(movie.id)} onToggle={() => setSelectedMovies((current) => current.includes(movie.id) ? current.filter((id) => id !== movie.id) : [...current, movie.id])} onEdit={() => editMovie(movie)} onDelete={() => confirmDeleteMovie(movie)} />)}{visibleMovies.length === 0 && <p className="col-span-full rounded-xl border border-dashed border-white/10 p-6 text-center text-xs text-zinc-500">لا توجد نتائج مطابقة.</p>}</div>
             </section>
 
             <section className="glass rounded-3xl p-5">
@@ -571,11 +630,37 @@ export function AdminDashboard() {
             </section>
             <section className="grid gap-6 lg:grid-cols-2">
               <div className="glass rounded-3xl p-5"><h2 className="mb-4 text-sm font-black">الأكثر تشغيلًا</h2><div className="space-y-2">{stats?.topMovies.map((movie, index) => <div key={movie._id} className="flex items-center gap-3 rounded-xl bg-black/20 p-3"><span className="grid size-8 place-items-center rounded-lg bg-white/5 text-xs font-black">{index + 1}</span><span className="min-w-0 flex-1 truncate text-xs font-bold">{movie.title}</span><span className="text-[10px] text-zinc-500">{movie.plays} تشغيل</span></div>)}</div></div>
-              <div className="glass rounded-3xl p-5"><div className="mb-4 flex flex-wrap items-center gap-2"><h2 className="ml-auto text-sm font-black">إدارة شوهد مؤخرًا</h2><button onClick={exportHistoryJson} disabled={!history.length} className="rounded-lg bg-cyan-500/10 px-2 py-2 text-[10px] text-cyan-100 disabled:opacity-30"><Download className="ml-1 inline" size={13} />تصدير JSON</button><button disabled={!selectedHistory.length} onClick={() => void deleteSelectedHistory()} className="rounded-lg bg-red-500/10 px-2 py-2 text-[10px] text-red-200 disabled:opacity-30"><Trash2 className="ml-1 inline" size={13} />حذف المحدد ({selectedHistory.length})</button></div><div className="relative mb-3"><Search className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-600" size={14} /><input value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder="ابحث في شوهد مؤخرًا..." className="h-10 w-full rounded-xl border border-white/10 bg-black/25 pr-9 pl-3 text-xs outline-none" /></div><div className="max-h-[520px] space-y-2 overflow-y-auto">{visibleHistory.map((entry) => <div key={entry.movieId} className="flex items-center gap-2 rounded-xl bg-black/20 p-3"><input type="checkbox" checked={selectedHistory.includes(entry.movieId)} onChange={() => setSelectedHistory((current) => current.includes(entry.movieId) ? current.filter((id) => id !== entry.movieId) : [...current, entry.movieId])} /><div className="min-w-0 flex-1"><div className="truncate text-xs font-bold">{entry.movie.title}</div><div className="mt-1 text-[10px] text-zinc-500">{new Date(entry.watchedAt).toLocaleString("ar-BH")} • {entry.duration ? Math.round(entry.progress / entry.duration * 100) : 0}%</div></div><button onClick={() => void renameHistory(entry)} className="rounded-lg p-2 text-zinc-500 hover:bg-white/10 hover:text-white" title="تعديل الاسم"><Pencil size={14} /></button><button onClick={() => void deleteHistory(entry.movieId)} className="rounded-lg p-2 text-zinc-600 hover:bg-red-500/10 hover:text-red-200" title="حذف هذا الفيلم فقط"><Trash2 size={14} /></button></div>)}</div></div>
+              <div className="glass rounded-3xl p-5">
+                <div className="mb-4 flex flex-wrap items-center gap-2">
+                  <h2 className="ml-auto text-sm font-black">إدارة شوهد مؤخرًا</h2>
+                  <button type="button" onClick={exportHistoryJson} disabled={!history.length} className="rounded-lg bg-cyan-500/10 px-2 py-2 text-[10px] text-cyan-100 disabled:opacity-30"><Download className="ml-1 inline" size={13} />تصدير JSON</button>
+                  <button type="button" disabled={busy || !visibleHistory.length} onClick={() => setSelectedHistory((current) => {
+                    const visibleIds = visibleHistory.map((entry) => entry.movieId);
+                    return visibleIds.every((id) => current.includes(id)) ? current.filter((id) => !visibleIds.includes(id)) : [...new Set([...current, ...visibleIds])];
+                  })} className="rounded-lg border border-white/10 px-2 py-2 text-[10px] text-zinc-200 disabled:opacity-30">{visibleHistory.length > 0 && visibleHistory.every((entry) => selectedHistory.includes(entry.movieId)) ? "إلغاء تحديد النتائج" : `تحديد الكل (${visibleHistory.length})`}</button>
+                  <button type="button" disabled={busy || !selectedHistory.length} onClick={() => confirmDeleteHistory([...selectedHistory])} className="rounded-lg bg-red-500/15 px-2 py-2 text-[10px] text-red-100 disabled:opacity-30"><Trash2 className="ml-1 inline" size={13} />حذف المحدد ({selectedHistory.length})</button>
+                </div>
+                <div className="relative mb-3"><Search className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-600" size={14} /><input value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder="ابحث في شوهد مؤخرًا..." className="h-10 w-full rounded-xl border border-white/10 bg-black/25 pr-9 pl-3 text-xs outline-none" /></div>
+                <div className="max-h-[520px] space-y-2 overflow-y-auto">{visibleHistory.map((entry) => <div key={entry.movieId} className="flex items-center gap-2 rounded-xl bg-black/20 p-3"><input type="checkbox" checked={selectedHistory.includes(entry.movieId)} onChange={() => setSelectedHistory((current) => current.includes(entry.movieId) ? current.filter((id) => id !== entry.movieId) : [...current, entry.movieId])} /><div className="min-w-0 flex-1"><div className="truncate text-xs font-bold">{entry.movie.title}</div><div className="mt-1 text-[10px] text-zinc-500">{new Date(entry.watchedAt).toLocaleString("ar-BH")} • {entry.duration ? Math.round(entry.progress / entry.duration * 100) : 0}%</div></div><button onClick={() => void renameHistory(entry)} className="rounded-lg p-2 text-zinc-500 hover:bg-white/10 hover:text-white" title="تعديل الاسم"><Pencil size={14} /></button><button onClick={() => confirmDeleteHistory([entry.movieId], entry.movie.title)} className="rounded-lg p-2 text-zinc-600 hover:bg-red-500/10 hover:text-red-200" title="حذف هذا الفيلم فقط"><Trash2 size={14} /></button></div>)}</div>
+              </div>
             </section>
           </div>
         </div>
       </div>
+      {deleteConfirmation && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:justify-start" dir="rtl">
+          <button type="button" className="absolute inset-0 bg-black/70 backdrop-blur-[3px]" onClick={() => setDeleteConfirmation(null)} aria-label="إلغاء الحذف" />
+          <div role="alertdialog" aria-modal="true" aria-labelledby="delete-confirm-title" aria-describedby="delete-confirm-message" className="animate-fade-up relative w-full max-w-md rounded-3xl border border-red-400/25 bg-[#172438] p-5 text-right text-white shadow-2xl sm:p-6">
+            <span className="mb-4 grid size-11 place-items-center rounded-2xl bg-red-400/15 text-red-200"><Trash2 size={21} /></span>
+            <h2 id="delete-confirm-title" className="text-base font-black">{deleteConfirmation.title}</h2>
+            <p id="delete-confirm-message" className="mt-2 text-sm leading-7 text-zinc-300">{deleteConfirmation.message}</p>
+            <div className="mt-6 flex gap-2">
+              <button type="button" autoFocus onClick={() => setDeleteConfirmation(null)} className="min-h-11 flex-1 rounded-xl border border-white/15 bg-white/5 px-4 text-sm font-bold hover:bg-white/10">إلغاء</button>
+              <button type="button" onClick={() => { const action = deleteConfirmation.action; setDeleteConfirmation(null); void action(); }} className="min-h-11 flex-1 rounded-xl bg-red-500/25 px-4 text-sm font-bold text-red-100 hover:bg-red-500/35">تأكيد الحذف</button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
